@@ -165,11 +165,15 @@ base64Sha256(workbenchHtml) === "BZ8Zb4TGBbDPaaGjA+MuDJxaFsxjmmG0YMyttD4zgcU"
 动任何东西之前，先跑这三条只读自检：
 
 ```bash
-node src/cli.mjs scan && node src/cli.mjs verify && node --test tests/deploy.test.mjs
+node src/cli.mjs scan && node src/cli.mjs verify && node --test "tests/**/*.test.mjs"
 ```
 
 验收基准：`scan` 报 **13,530 / 13,530（100.00%）**、缺口 **0**；`verify` **6/6 通过**；测试全绿。
 数字对不上说明键表解析或基准表取错，先排查再继续。
+
+测试**必须用通配**（`"tests/**/*.test.mjs"`，引号不能省；`node --test tests/` 会失败）。
+不要改成只跑某一个文件 —— 漏掉 `tests/m4.test.mjs` 就等于不测「哪些英文字符串会被写进
+47 MB 的 bundle」，而那正是一改错就让 Cursor 白屏的那部分。
 
 `install` / `patch` 之前必须先**完全退出 Cursor** —— `sync` 会强制这条规则，手工跑也别跳过。
 里程碑定义见 `docs/05-开发规格.md` §7（M1–M5 均已完成；M4 已于 2026-10-15 实机验证通过）。
