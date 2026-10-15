@@ -6,6 +6,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { locate } from "./scan/locate.mjs";
@@ -21,12 +22,19 @@ import { buildPatchedMessages, renderDiffSummary } from "./deploy/nls.mjs";
 import { install } from "./deploy/install.mjs";
 import { restore, listBackups } from "./deploy/restore.mjs";
 import { describeCache } from "./deploy/cache.mjs";
-import { base64Sha256 } from "./deploy/backup.mjs";
+import {
+  base64Sha256,
+  backupRoot,
+  readManifest,
+  sha256Hex,
+} from "./deploy/backup.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const DATA_DIR = path.join(ROOT, "data");
 const BUILD_DIR = path.join(ROOT, "build");
 const REPORTS_DIR = path.join(ROOT, "reports");
+const SYNC_LOG = path.join(ROOT, "logs", "sync.log");
+const TARGET_REL = "out/nls.messages.json";
 
 function readProduct(paths) {
   const p = JSON.parse(fs.readFileSync(paths.productJson, "utf8"));
@@ -301,6 +309,140 @@ function cmdCache() {
   console.log("");
 }
 
+// 自动跟随 Cursor 升级：比对版本与文件哈希，只在需要时重跑一遍写入。
+//
+// 设计约束：
+//   1. Cursor 运行中绝不写入 —— 文件被占用，且缓存失效会在错误时机生效。直接跳过本轮。
+//   2. 判断全部只读；译本生成（prepare）也在内存完成，任何一步失败都不落盘。
+//   3. 只处理「原始内容」与「本工具写入的内容」两种状态；第三种（外部改动）一律跳过并告警，
+//      绝不自动覆盖 —— 那可能是 Cursor 升级器的中间态，覆盖会毁掉安装。
+//   4. 本命令被计划任务高频调用，无事可做时必须是纯读的快速路径（几毫秒）。
+// 成功与否都写 logs/sync.log，便于事后复盘。
+const SYNC_LOG_MAX = 1 << 20;
+
+function syncLog(line) {
+  fs.mkdirSync(path.dirname(SYNC_LOG), { recursive: true });
+  try {
+    // 每 15 分钟一行，天长日久会攒到几十万行；超过 1 MB 就留一份上一代
+    if (fs.statSync(SYNC_LOG).size > SYNC_LOG_MAX) {
+      fs.rmSync(`${SYNC_LOG}.1`, { force: true });
+      fs.renameSync(SYNC_LOG, `${SYNC_LOG}.1`);
+    }
+  } catch {}
+  fs.appendFileSync(SYNC_LOG, `[${new Date().toISOString()}] ${line}\n`, "utf8");
+}
+
+// 跳过类消息：手动在终端执行时可见，计划任务里静默落到日志
+function note(line) {
+  if (process.stdout.isTTY) console.log(line);
+  syncLog(line);
+}
+
+// 返回 true/false，无法判定时返回 null（宁可不写，也不在 Cursor 运行中写入）
+function isCursorRunning() {
+  const r = spawnSync("tasklist", ["/FI", "IMAGENAME eq Cursor.exe", "/NH"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (r.error || typeof r.stdout !== "string") return null;
+  return r.stdout.includes("Cursor.exe");
+}
+
+function cmdSync(argv) {
+  const dryRun = argv.includes("--dry-run");
+  const say = (s) => {
+    console.log(s);
+    syncLog(s);
+  };
+
+  let paths;
+  let product;
+  try {
+    paths = locate();
+    product = readProduct(paths);
+  } catch (e) {
+    note(`跳过：定位 Cursor 失败 —— ${e.message}`);
+    return;
+  }
+
+  // --dry-run 全程不写文件，运行中也可以安全预演；真实写入则必须先退出 Cursor
+  const running = isCursorRunning();
+  if (running === null && !dryRun) {
+    note("跳过：无法判定 Cursor 是否在运行（tasklist 不可用），不在不确定时写入。");
+    return;
+  }
+  if (running && !dryRun) {
+    note(`跳过：Cursor ${product.version} 正在运行，本轮不改动任何文件。`);
+    return;
+  }
+
+  const target = path.join(paths.appDir, TARGET_REL);
+  const dir = backupRoot(ROOT, product);
+  const manifest = readManifest(dir);
+  const entry = manifest?.files?.find((f) => f.relativePath === TARGET_REL);
+  const currentHash = sha256Hex(fs.readFileSync(target));
+
+  // —— 快速路径：同版本，且当前内容正是上次本工具写入的 ——
+  if (entry?.installedSha256 && currentHash === entry.installedSha256) {
+    note(`Cursor ${product.version} 未变化，out/nls.messages.json 已是最新，跳过。`);
+    return;
+  }
+
+  if (entry && currentHash !== entry.sha256) {
+    note(
+      `跳过：当前 out/nls.messages.json 既不是原始内容（${entry.sha256.slice(0, 16)}…），` +
+        `也不是本工具写入的内容（${(entry.installedSha256 ?? "未记录").slice(0, 16)}…），` +
+        `实际为 ${currentHash.slice(0, 16)}…。可能被其它工具改过，需人工确认后再处理。`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // entry 不存在 = Cursor 换了版本（备份目录按 版本_发行版 分层），视为全新安装
+  say(
+    entry
+      ? `检测到 out/nls.messages.json 已回到原始内容，重新写入译文（Cursor ${product.version}）。`
+      : `检测到新版本 Cursor ${product.version} / commit ${String(product.commit).slice(0, 8)}，开始重建译文表。`
+  );
+
+  // 基准优先用备份里的原始表，保证反复执行的结果完全一致（幂等）
+  const backupTable = path.join(dir, "files", TARGET_REL);
+  const basePath = fs.existsSync(backupTable) ? backupTable : paths.nlsMessages;
+
+  let ctx;
+  try {
+    ctx = prepare(JSON.parse(fs.readFileSync(basePath, "utf8")));
+  } catch (e) {
+    say(
+      `中止：新版本键表与现有词典不匹配 —— ${e.message}\n` +
+        "未写入任何文件，Cursor 保持原样。需人工核对 data/overrides.json 后重试。"
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    install({
+      paths: ctx.paths,
+      product: ctx.product,
+      projectRoot: ROOT,
+      messages: ctx.patched,
+      dryRun,
+      log: (s) => note(`  ${s}`),
+    });
+  } catch (e) {
+    say(`写入失败：${e.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  say(
+    dryRun
+      ? `预演完成：将写入 ${ctx.changed.length} 条译文（--dry-run，未改动任何文件）。`
+      : `完成：写入 ${ctx.changed.length} 条译文，clp 缓存已失效，Cursor 下次启动即为中文。`
+  );
+}
+
 // 只读：确认 6 个被校验文件仍然完好，并复现 docs/05 §6.1 的金标准断言。
 // 本工程不触碰任何被校验文件，所以这个命令应当永远全绿；一旦变红说明有东西改坏了 Cursor。
 const GOLDEN = {
@@ -444,6 +586,7 @@ const COMMANDS = {
   install: cmdInstall,
   restore: cmdRestore,
   cache: cmdCache,
+  sync: cmdSync,
 };
 
 function main() {
@@ -465,6 +608,7 @@ function main() {
         "  build             生成改写后的消息表到 build/（不碰 Cursor）",
         "  install [--dry-run] [--yes]   写入 Cursor 并失效 clp 缓存",
         "  restore [--dry-run]           从备份还原",
+        "  sync [--dry-run]              自动跟随：版本变化或被覆盖时重新写入（供计划任务调用）",
       ].join("\n")
     );
     return;

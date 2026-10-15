@@ -9,6 +9,9 @@ backup/
 # —— 本地设置 ——
 .claude/settings.local.json
 
+# —— 运行日志（sync 的排错记录，各机器各自生成）——
+logs/
+
 # —— 常规 ——
 node_modules/
 .DS_Store
