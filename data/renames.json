@@ -1,0 +1,7 @@
+{
+  "description": "模块路径归一化映射。from = Cursor 现用路径片段，to = 官方语言包中的路径片段。用途：Cursor 的模块路径已被上游重命名，直接精确匹配会整模块丢失译文，需要按此表回退查找。",
+  "rules": [
+    { "from": "electron-sandbox", "to": "electron-browser" },
+    { "from": "contrib/search/common", "to": "contrib/search/browser" }
+  ]
+}

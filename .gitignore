@@ -1,18 +1,17 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+# —— 生成物：可由本工具重新生成，不入库 ——
+build/
 
-# Other files and folders
-.settings/
+# —— Cursor 原始文件备份 ——
+# 含 Cursor 自身专有内容，不能用本项目 MIT 协议授权；且 restore 依赖的是本地
+# backup/ 目录，不需要入库。换机器请先跑 install 重建备份。
+backup/
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
+# —— 本地设置 ——
+.claude/settings.local.json
 
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# —— 常规 ——
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+*.cursor-zh.tmp
