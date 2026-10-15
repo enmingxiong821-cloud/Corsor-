@@ -134,6 +134,96 @@ test("scanBundle：同名文案出现在别的字段上不受守卫牵连", () =
   assert.deepEqual(scanBundle(src).map((h) => [h.field, h.raw]), [["children", "Ready"]]);
 });
 
+test("collectUiConstants：var 声明列表不是数组元素，不再误挡常量", () => {
+  const src = `var Sye,n_s,i_s;Sye="Start from scratch",n_s="Create a new chat";
+             a={children:Sye};b={label:n_s};`;
+  const got = collectUiConstants(src);
+  // 早期把 `var Sye,n_s,i_s` 当成数组裸值位置，Sye 这类只在定义处出现的文案全被挡掉
+  assert.equal(got.get("Sye"), "Start from scratch");
+  assert.equal(got.get("n_s"), "Create a new chat");
+});
+
+test("scanBundle：title:{value,original} 只翻 value，两串不同则不认", () => {
+  const same = `A=class{constructor(){super({id:x,title:{value:"New Chat",original:"New Chat"}})}}`;
+  assert.deepEqual(scanBundle(same).map((h) => [h.field, h.raw]), [["title", "New Chat"]]);
+
+  // 两个串不一样说明这不是那份成对的本地化结构（别处 value 是数字、original 是查表键），
+  // 一律不动 —— 实测按 value 放宽会命中 {original:"Debug",value:D(2106)} 那种键值对。
+  const diff = `B={title:{value:"New Chat",original:"New Chat Tab"}}`;
+  assert.deepEqual(scanBundle(diff).map((h) => h.raw), []);
+});
+
+test("scanBundle：≥5 成员的 id→文案映射表整块收，短载荷不收", () => {
+  const nav = `T={general:"General",profile:"Profile",appearance:"Appearance",models:"Models",docs:"Docs"}`;
+  assert.deepEqual(scanBundle(nav).map((h) => [h.field, h.raw]), [
+    ["general", "General"],
+    ["profile", "Profile"],
+    ["appearance", "Appearance"],
+    ["models", "Models"],
+    ["docs", "Docs"],
+  ]);
+
+  // 两三个成员的错误载荷长得一模一样，靠成员数区分：设置页那份导航表有 24 个成员
+  assert.deepEqual(scanBundle(`P={message:"Something failed",error:"Timed out"}`).map((h) => h.raw), []);
+});
+
+test("scanBundle：命中的区间必须精确套住那个字面量", () => {
+  // 键也带引号时，映射表的值位置不能靠 indexOf(引号) 找 —— 会落到键的开引号上，
+  // 改写时把 "aria-la 截断，bundle 语法直接崩（实测在干跑时被 assertSyntax 拦下）。
+  const src = `N={"general":"Pinned","docs":"Unpinned","profile":"Role","appearance":"Mode","models":"State"}`;
+  const hits = scanBundle(src);
+  assert.deepEqual(hits.map((h) => h.raw), ["Pinned", "Unpinned", "Role", "Mode", "State"]);
+  for (const h of hits) {
+    assert.equal(src.slice(h.start, h.end), h.quote + h.raw + h.quote, `区间没套住 ${h.raw}`);
+  }
+});
+
+test("scanBundle：带引号的字段名折成驼峰再对白名单", () => {
+  const src = `a={"aria-label":"Repositories"},b={"data-test":"Repositories"}`;
+  // aria-label 是真实的无障碍标签；data-test 只是测试选择器，不在白名单里，不翻
+  assert.deepEqual(scanBundle(src).map((h) => [h.field, h.raw]), [["ariaLabel", "Repositories"]]);
+});
+
+test("scanBundle：兜底与三元分支的默认文案，参与过等值判断的不翻", () => {
+  const src = `f=function(e){return e.getComposerTitle()||"New Chat"};
+             g=function(x){return x?"This PC":"This Mac"}`;
+  assert.deepEqual(scanBundle(src).map((h) => h.raw), ["New Chat", "This PC", "This Mac"]);
+
+  // 两个分支文案相同：必须记成两处独立命中，否则只会翻掉前一处、留下一处英文
+  const twin = `h=function(x){return x?"Home":"Home"}`;
+  const hits = scanBundle(twin);
+  assert.equal(hits.length, 2, "同一文案的两个分支是两个替换点");
+  assert.equal(hits[0].end <= hits[1].start, true, "两处命中不得重叠");
+
+  // 只有 ? 后是字面量、: 后是变量 → 不认（那是取值的常见写法，翻了会改动语义）
+  assert.deepEqual(scanBundle(`k=function(x,a){return x?"Yes":a}`).map((h) => h.raw), []);
+
+  // 取值三元：只有一个分支像文案 → 不认。实测 e?"Top":"InlineStart" 是 CSS 方向值，
+  // 翻了 "Top" 会让布局错位；真正的文案三元两边都像文案。
+  assert.deepEqual(scanBundle(`m=function(e){const i=e?"Top":"InlineStart";return i}`).map((h) => h.raw), []);
+  // 状态文案三元两边都像文案 → 照翻（枚举定义处不是命中位置，不会被改写）
+  assert.deepEqual(scanBundle(`n=function(o){return o.isWeak?"Weak":"Strong"}`).map((h) => h.raw), ["Weak", "Strong"]);
+
+  // Cancel 在别处被 label 比较过 → 按标识处理，兜底处也不能翻
+  const guarded = `h={label:"Cancel"},k=function(e){return e.label==="Cancel"},m=function(x){return x||"Cancel"}`;
+  assert.deepEqual(scanBundle(guarded).map((h) => h.raw), []);
+});
+
+test("scanBundle：无字段名可依的位置，凡在任何地方被比较过的值一律不翻", () => {
+  // Enter 在这里只是个按钮兜底文案，但别处拿它当键名比较过 —— 显示侧翻了、判断侧没翻就失配。
+  const src = `a=function(x){return x||"Enter"},b=function(e){return e.key==="Enter"},
+             c=function(x){return x?"This PC":"This Mac"}`;
+  assert.deepEqual(scanBundle(src).map((h) => h.raw), ["This PC", "This Mac"]);
+
+  // 比较在左侧、以及 case 分支，同样算数
+  const other = `d=function(x){return x||"Auto"},e=function(t){switch(t){case "Auto":return 1}}`;
+  assert.deepEqual(scanBundle(other).map((h) => h.raw), []);
+
+  // 这道闸只管无字段名可依的位置；字段名那一侧另有更精确的守卫，不受牵连
+  const withField = `a={label:"Enter"},b=function(e){return e.key==="Enter"}`;
+  assert.deepEqual(scanBundle(withField).map((h) => h.raw), ["Enter"]);
+});
+
 test("targets：只有内核 bundle 标了 checksummed / nlsExclude", () => {
   const core = M4_TARGETS.filter((t) => t.checksummed);
   assert.deepEqual(

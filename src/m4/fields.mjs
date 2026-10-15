@@ -34,6 +34,39 @@ export const UI_FIELDS = new Set([
   "subLabel",
   "tooltipText",
   "hint",
+  // 2026-10-15 实测补入（Agent 窗口与设置页残留英文的主因之一）。
+  // 刻意不收的两个：
+  //   · glassCategory —— 键位分组名，与 category 共用同一批值，翻了会让快捷键归错组
+  //   · message / error / body / header / source —— 既是显示文案也是协议字段，分不清
+  "sectionTitle",
+  "sectionLabel",
+  "collectionLabel",
+  "listLabel",
+  "itemLabel",
+  "columnLabel",
+  "rowLabel",
+  "groupLabel",
+  "defaultLabel",
+  "cancelLabel",
+  "saveLabel",
+  "confirmLabel",
+  "buttonLabel",
+  "primaryLabel",
+  "primaryButton",
+  "secondaryLabel",
+  "connectLabel",
+  "regretLabel",
+  "navLabel",
+  "menuLabel",
+  "tabLabel",
+  "headerTitle",
+  "emptyStateTitle",
+  "heading",
+  "pageTitle",
+  "displayName",
+  "locationName",
+  "loadingAction",
+  "completedAction",
 ]);
 
 export const NEVER_FIELDS = new Set([
@@ -85,8 +118,16 @@ export const NEVER_FIELDS = new Set([
   "env",
 ]);
 
-// 紧邻字符串的字段名，形如 {label:"…"} 或 label="…"
-export const FIELD_RE = /([A-Za-z_$][\w$]*)\s*[:=]\s*$/;
+// 紧邻字符串的字段名，形如 {label:"…"} 或 label="…"。
+// 也认带引号的字段名：{"aria-label":"Repositories"} —— 早期只认裸标识符，这类整片漏译。
+export const FIELD_RE = /(?:"([A-Za-z][\w-]*)"|'([A-Za-z][\w-]*)'|([A-Za-z_$][\w$]*))\s*[:=]\s*$/;
+
+// aria-label → ariaLabel，带连字符的字段名折成驼峰后再对白名单，好让一个名字管两种写法。
+export function normalizeFieldName(name) {
+  return name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+}
 
 // 字段名识别窗口：minified 代码里字段名与字符串之间只有 : 或 = ，40 字符足够。
+// 带引号的名字要长一点（"aria-label": 有 13 个字符），但仍在窗口内。
 export const FIELD_WINDOW = 40;
+

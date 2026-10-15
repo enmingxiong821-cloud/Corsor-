@@ -5,16 +5,43 @@
 
 import { spawnSync } from "node:child_process";
 
-// 返回 true / false；无法判定时返回 null（调用方应按"不确定就别写"处理）
-export function isCursorRunning() {
-  if (process.platform !== "win32") return null;
-  // 必须带超时：tasklist 在某些受限环境（沙箱、被劫持的 PATH、系统卡顿）下会一直不返回，
-  // 而这里是无超时的同步调用 —— 一旦卡住，手工 patch 和每 15 分钟的计划任务会一起挂死。
+// Windows 上 tasklist 会卡死（实测：15 秒超时、沙箱内外都一样，而同一时刻
+// PowerShell 的 Get-Process 毫秒级返回）。探测一旦拿不到结果，sync 被判定为
+// "不确定"就永不写入 —— 计划任务会静默失效。所以 tasklist 拿不到结果时换
+// PowerShell 再试一次；两条路都失败才返回 null。
+function viaTasklist() {
   const r = spawnSync("tasklist", ["/FI", "IMAGENAME eq Cursor.exe", "/NH"], {
     encoding: "utf8",
     windowsHide: true,
     timeout: 15000,
   });
-  if (r.error || typeof r.stdout !== "string") return null;
+  if (r.error || typeof r.stdout !== "string" || r.status !== 0) return null;
   return r.stdout.includes("Cursor.exe");
+}
+
+function viaPowerShell() {
+  const r = spawnSync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "@(Get-Process -Name Cursor -ErrorAction SilentlyContinue).Count",
+    ],
+    { encoding: "utf8", windowsHide: true, timeout: 15000, windowsVerbatimArguments: false }
+  );
+  if (r.error || typeof r.stdout !== "string") return null;
+  const n = Number.parseInt(r.stdout.trim(), 10);
+  if (!Number.isFinite(n)) return null;
+  return n > 0;
+}
+
+// 返回 true / false；无法判定时返回 null（调用方应按"不确定就别写"处理）
+export function isCursorRunning() {
+  if (process.platform !== "win32") return null;
+  const viaList = viaTasklist();
+  if (viaList !== null) return viaList;
+  return viaPowerShell();
 }
