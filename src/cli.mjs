@@ -48,12 +48,28 @@ function readProduct(paths) {
   };
 }
 
+// 基准表：一律以「备份里的原始英文表」为准，而不是磁盘上当前的 nls.messages.json。
+//
+// 安装之后磁盘上那份已经是中文了，再拿它当"英文原文"去词典里匹配，必然匹配不上，
+// 于是报出一批不存在的缺口（实测 13 条：它们在安装后的表里本来就是中文）。
+// 基准固定为原始表，覆盖率数字才不会随"装没装"漂移，build 的幂等性也有了保证。
+function baselineTable(paths, product) {
+  try {
+    const backup = path.join(backupRoot(ROOT, product), "files", TARGET_REL);
+    if (fs.existsSync(backup)) return backup;
+  } catch {
+    // 备份目录名不合法（product 读不到）时退回当前文件
+  }
+  return paths.nlsMessages;
+}
+
 function context() {
   const paths = locate();
   const product = readProduct(paths);
-  const { flat, moduleCount } = loadFlatKeys(paths);
+  const base = baselineTable(paths, product);
+  const { flat, moduleCount } = loadFlatKeys({ ...paths, nlsMessages: base });
   const pack = loadPrimaryPack(paths);
-  return { paths, product, flat, moduleCount, pack };
+  return { paths, product, base, flat, moduleCount, pack };
 }
 
 function cmdScan(argv) {
@@ -195,7 +211,7 @@ function prepare(messages) {
 
 function cmdBuild() {
   const paths0 = locate();
-  const raw = fs.readFileSync(paths0.nlsMessages, "utf8");
+  const raw = fs.readFileSync(baselineTable(paths0, readProduct(paths0)), "utf8");
   const defaultMessages = JSON.parse(raw);
   if (JSON.stringify(defaultMessages) !== raw) {
     console.warn(
@@ -250,7 +266,9 @@ function cmdInstall(argv) {
   }
 
   const paths0 = locate();
-  const defaultMessages = JSON.parse(fs.readFileSync(paths0.nlsMessages, "utf8"));
+  const defaultMessages = JSON.parse(
+    fs.readFileSync(baselineTable(paths0, readProduct(paths0)), "utf8")
+  );
   const ctx = prepare(defaultMessages);
 
   console.log("");
@@ -405,9 +423,8 @@ function cmdSync(argv) {
       : `检测到新版本 Cursor ${product.version} / commit ${String(product.commit).slice(0, 8)}，开始重建译文表。`
   );
 
-  // 基准优先用备份里的原始表，保证反复执行的结果完全一致（幂等）
-  const backupTable = path.join(dir, "files", TARGET_REL);
-  const basePath = fs.existsSync(backupTable) ? backupTable : paths.nlsMessages;
+  // 基准一律用备份里的原始表（见 baselineTable），反复执行结果完全一致
+  const basePath = baselineTable(paths, product);
 
   let ctx;
   try {
