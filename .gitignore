@@ -1,5 +1,6 @@
 # —— 生成物：可由本工具重新生成，不入库 ——
 build/
+reports/
 
 # —— Cursor 原始文件备份 ——
 # 含 Cursor 自身专有内容，不能用本项目 MIT 协议授权；且 restore 依赖的是本地

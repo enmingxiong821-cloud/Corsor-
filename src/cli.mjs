@@ -6,10 +6,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { locate } from "./scan/locate.mjs";
+import { readProduct } from "./scan/product.mjs";
 import { loadFlatKeys } from "./scan/keys.mjs";
 import { loadPrimaryPack, findLanguagePacks } from "./scan/pack.mjs";
 import { loadRenames } from "./align/normalize.mjs";
@@ -22,6 +22,7 @@ import { buildPatchedMessages, renderDiffSummary } from "./deploy/nls.mjs";
 import { install } from "./deploy/install.mjs";
 import { restore, listBackups } from "./deploy/restore.mjs";
 import { describeCache } from "./deploy/cache.mjs";
+import { isCursorRunning } from "./deploy/process.mjs";
 import {
   base64Sha256,
   backupRoot,
@@ -35,18 +36,6 @@ const BUILD_DIR = path.join(ROOT, "build");
 const REPORTS_DIR = path.join(ROOT, "reports");
 const SYNC_LOG = path.join(ROOT, "logs", "sync.log");
 const TARGET_REL = "out/nls.messages.json";
-
-function readProduct(paths) {
-  const p = JSON.parse(fs.readFileSync(paths.productJson, "utf8"));
-  return {
-    version: p.version,
-    commit: p.commit,
-    vscodeVersion: p.vscodeVersion,
-    // 实测 Cursor 3.24.18 的 product.json **没有 distro 字段**，
-    // 同一构建的标识只能用 commit（clp 缓存目录也正是按 commit 分层的）。
-    distro: p.distro || p.commit,
-  };
-}
 
 // 基准表：一律以「备份里的原始英文表」为准，而不是磁盘上当前的 nls.messages.json。
 //
@@ -354,16 +343,6 @@ function syncLog(line) {
 function note(line) {
   if (process.stdout.isTTY) console.log(line);
   syncLog(line);
-}
-
-// 返回 true/false，无法判定时返回 null（宁可不写，也不在 Cursor 运行中写入）
-function isCursorRunning() {
-  const r = spawnSync("tasklist", ["/FI", "IMAGENAME eq Cursor.exe", "/NH"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (r.error || typeof r.stdout !== "string") return null;
-  return r.stdout.includes("Cursor.exe");
 }
 
 function cmdSync(argv) {

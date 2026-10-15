@@ -4,15 +4,18 @@ Cursor 界面简体中文汉化工程。**开工前请读完本文件。**
 
 ## 一句话目标
 
-把 Cursor 界面中文覆盖率从 **85.43%** 提升到 **95%+**，
+让 Cursor 界面尽量完整地显示中文 —— **当前已达 100%（13,530 / 13,530）**，
 且不破坏 Cursor、不影响其正常使用、每一步都可回滚。
+
+**已交付**：`install.cmd` 一键安装、`sync` + 计划任务自动跟随 Cursor 升级。
+**下一阶段**：M4 运行时补丁（AI 面板等 React/SolidJS 硬编码文案，约 3,100 条，见 `docs/05` §7）。
 
 ## 铁律（违反即失败）
 
 1. **用 Node.js（ESM，`.mjs`）实现，禁止用 Python**
    —— 本机 `python` 被 Microsoft Store 别名劫持，`Python313\python.exe`
    被执行策略拒绝（实测 `ResourceUnavailable`），`py -3` 也找不到运行时。
-2. **默认只读** —— 除 `install` / `patch` / `restore` 外，任何命令不得写入 Cursor 安装目录。
+2. **默认只读** —— 除 `install` / `sync` / `patch` / `restore` 外，任何命令不得写入 Cursor 安装目录。
 3. **写前必备份** —— 记录原始 SHA-256；`restore` 必须能字节级还原。
 4. **改写被校验文件后必须重算 checksums**
    —— 否则 Cursor 启动时报 `installation appears to be corrupt`。
@@ -28,8 +31,9 @@ Cursor 界面简体中文汉化工程。**开工前请读完本文件。**
 - 语言包 bundle **确定**包在 `{contents: ...}` 里 —— 模块表是 `bundle.contents[moduleId]`
 - 校验值算法 = `base64(sha256(bytes))`，**去掉末尾 `=` 填充**
 - 被校验文件只有 6 个；`workbench.glass.main.js` 与 `nls.messages.json` **免校验**
-- 当前覆盖率 **85.43%**（11,559 / 13,530），缺口 **1,971**
-- 路径归一化可救回 **332 键** → 87.89%
+- 覆盖率 **100.00%**（13,530 / 13,530）= 语言包 11,559 + 路径归一化 332 + 补译词典 1,971
+- ★ 覆盖率基准必须取**备份里的原始表**，不是磁盘上当前的 `nls.messages.json`
+  —— 装过之后后者已是中文，拿它当"英文原文"会凭空报出 13 条假缺口
 
 ## 运行时机制（源码级确证，改之前必须懂，详见 `docs/03` §1.1）
 
@@ -68,16 +72,17 @@ base64Sha256(workbenchHtml) === "BZ8Zb4TGBbDPaaGjA+MuDJxaFsxjmmG0YMyttD4zgcU"
 
 ## 开工顺序
 
-**先做 M1（`scan`，纯只读）**，跑通再往下：
+动任何东西之前，先跑这三条只读自检：
 
 ```bash
-node src/cli.mjs scan
+node src/cli.mjs scan && node src/cli.mjs verify && node --test tests/deploy.test.mjs
 ```
 
-M1 验收：覆盖率必须报出 **85.43%（11,559 / 13,530）**、缺口 **1,971**、缺口模块 **295**。
-数字对不上说明键表解析有误，先排查再继续。
+验收基准：`scan` 报 **13,530 / 13,530（100.00%）**、缺口 **0**；`verify` **6/6 通过**；测试全绿。
+数字对不上说明键表解析或基准表取错，先排查再继续。
 
-四个里程碑的详细定义见 `docs/05-开发规格.md` §7。
+`install` 之前必须先**完全退出 Cursor** —— `sync` 会强制这条规则，手工跑也别跳过。
+里程碑定义见 `docs/05-开发规格.md` §7（M1–M3、M5 已完成，M4 未开工）。
 
 ## 已备好的输入数据
 
@@ -85,7 +90,7 @@ M1 验收：覆盖率必须报出 **85.43%（11,559 / 13,530）**、缺口 **1,9
 | --- | --- |
 | `data/renames.json` | 路径归一化映射（已填实测值） |
 | `data/terms.json` | 术语表（翻译时保持一致） |
-| `data/overrides.json` | 补译词典，初始为空 |
+| `data/overrides.json` | 补译词典（已填 1,971 条，重名键按英文原文逐条区分） |
 | `build/missing.json` | 待补译工作单（按模块分组，含英文原文） |
 | `build/all-keys.json` | 全量键 + 英文原文 + 现有译文 |
 
