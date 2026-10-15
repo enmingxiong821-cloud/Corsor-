@@ -129,6 +129,36 @@ function healHalfWritten({ paths, rel, product, projectRoot, log }) {
   return "healed";
 }
 
+/**
+ * 取 patch 的输入。**优先用备份里的原始英文，而不是盘上当前文件。**
+ *
+ * scan 里有几条规则是「整表 / 整文件」分析：左导航映射表要求 ≥5 个成员的**值都是** UI 文案、
+ * `title:{value,original}` 要求两者相等、`collectUiConstants` 要求目标常量「没有任何
+ * NEVER 字段且不出现在数组裸值位置」。上一轮写入后大量串已是中文，这些前提就不再成立，
+ * 剩下的英文从此再也扫不到 —— 实测以盘上文件为输入，glass 可替换 **0** 处；用备份里的
+ * 原始英文则是 **7,008** 处。反复 patch 会卡死在「改了一半」的稳态。这正是独立 Agent
+ * 设置面板整片英文的根因。
+ *
+ * 代价是写入内容不再依赖盘上现状，所以先确认盘上文件要么是原始件、要么是我方上次写入的
+ * 结果；两者都不是就说明被别的工具或升级器动过 —— 只告警不覆盖（与 NLS 通道同一条底线），
+ * 返回 null 让调用方跳过该目标。
+ */
+function readPatchSource({ dir, rel, abs, log }) {
+  const bak = path.join(dir, "files", rel);
+  if (!fs.existsSync(bak)) return fs.readFileSync(abs, "utf8");
+
+  const entry = readManifest(dir)?.files?.find((f) => f.relativePath === rel);
+  const diskHash = sha256Hex(fs.readFileSync(abs));
+  if (entry && diskHash !== entry.sha256 && diskHash !== entry.installedSha256) {
+    log(
+      `  跳过     ${rel} —— 盘上内容既不是原始文件、也不是本工具上次写入的结果，` +
+        "可能被别的工具动过。拒绝用旧备份覆盖它；确认无误后先 restore 再重试。"
+    );
+    return null;
+  }
+  return fs.readFileSync(bak, "utf8");
+}
+
 export function installBundles({
   paths,
   product,
@@ -166,10 +196,24 @@ export function installBundles({
     }
 
     const opts = target.nlsExclude ? { nlsExclude } : undefined;
-    const r = patchBundle(fs.readFileSync(abs, "utf8"), dict, opts);
+    const source = readPatchSource({ dir, rel, abs, log });
+    if (source === null) {
+      summary.push({ rel, label, status: "foreign" });
+      continue;
+    }
+
+    const r = patchBundle(source, dict, opts);
 
     if (r.changed === 0) {
       log(`  无需改写 ${rel} —— 没有可替换的文案`);
+      summary.push({ rel, label, status: "no-change" });
+      continue;
+    }
+
+    // 输入恒为备份里的原始英文，所以每次算出的结果都一样；盘上已经等于它就真的是最新，
+    // 不必重写 —— 否则计划任务每 15 分钟重写一次 40 MB，被校验文件还会反复重算校验值。
+    if (fs.readFileSync(abs, "utf8") === r.source) {
+      log(`  无需改写 ${rel} —— 已是最新`);
       summary.push({ rel, label, status: "no-change" });
       continue;
     }

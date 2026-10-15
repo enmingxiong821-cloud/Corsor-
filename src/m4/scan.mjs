@@ -158,8 +158,8 @@ export function collectUiConstants(source) {
 
 // ── 形状规则 ─────────────────────────────────────────────────────────────────
 //
-// 「字段名紧邻字符串」之外，实测还有三类承载界面文案的写法，只按字段名一条都抓不到。
-// 三条规则都限定在精确形状上：放宽成「字段名不在 NEVER 里就翻」会命中 HTTP 头
+// 「字段名紧邻字符串」之外，实测还有五类承载界面文案的写法，只按字段名一条都抓不到。
+// 五条规则都限定在精确形状上：放宽成「字段名不在 NEVER 里就翻」会命中 HTTP 头
 // （X-Forwarded / Forwarded-For）、键盘枚举（t[t.Tab=9]="Tab"）、查表键
 // （{original:"Debug",value:D(2106)}），实测确认会改坏运行时语义，故不采用。
 
@@ -184,6 +184,21 @@ const NAV_ENTRY_RE = new RegExp(
 //    比整条不翻更难看；两个分支都是字面量才认（`x?"A":y` 不动）。
 const FALLBACK_RE = /(?:\|\||\?\?)\s*(["'])((?:\\.|(?!\1)[^\\\n\r])*)\1/g;
 const TERNARY_RE = /\?(?!\.|\?)\s*(["'])((?:\\.|(?!\1)[^\\\n\r])*)\1\s*:\s*(["'])((?:\\.|(?!\3)[^\\\n\r])*)\3/g;
+
+// ⑤ 驼峰键映射表：zme={section:"Browser",automation:"Browser Automation",protectionDescription:"…"}。
+//    形状与 ② 相同，只是键是驼峰 —— ② 的「全小写」限定抓不到，独立 Agent 设置面板的
+//    Browser 那一组就是这么整片漏掉的。
+//
+//    ② 用「全小写」是拿它当廉价代理，本意是排掉 name/type/mode/status 这类遥测键；
+//    而那批键名本来就都在 NEVER_FIELDS 里，所以这里改成显式判定：**任一键归一后落进
+//    NEVER_FIELDS 就整块丢弃**。实测这一步挡掉三张会改坏运行时的表 —— Statsig 字段映射
+//    （{EventCount:"ec",SdkKey:"k",…}）、权限 scope（{ReadSpend:"team.spend.read",…}）、
+//    枚举 slug（{SOFTWARE_ENGINEER:"software-engineer",…}）—— 若不挡，值会被翻成中文写回，
+//    直接改运行时语义。再加一道「每个值都必须通过 isUiText」挡掉 {invalid_type:"invalid_type"}
+//    这类标识表。逐条仍走 ② 那套标识值守卫（emit 里按字段名判）。
+const CAMEL_MEMBER = String.raw`\s*(?:"([A-Za-z_$][A-Za-z0-9_$-]*)"|([A-Za-z_$][A-Za-z0-9_$-]*))\s*:\s*(["'])((?:\\.|(?!\3)[^\\\n\r])*)\3`;
+const CAMEL_MAP_RE = new RegExp(String.raw`\{${CAMEL_MEMBER}(?:,${CAMEL_MEMBER}){4,}\s*\}`, "g");
+const CAMEL_ENTRY_RE = new RegExp(CAMEL_MEMBER, "g");
 
 // 匹配串在 m[0] 里的起始下标。TITLE_OBJ 里同一段文本出现两次，取首个即 value 那一处。
 function litStart(m, quote, content) {
@@ -248,6 +263,25 @@ export function collectShapeHits(source, { identity, cmpAny } = {}) {
       // （{"aria-label":"Pinned"}）第一个引号就是键的开引号，位置会落到键上，
       // 改写时把 "aria-la 截断，语法直接崩。条目恰好以值的收引号结束，回推恒精确。
       emit(map.index + e.index + e[0].length - (e[3] + e[4] + e[3]).length, e[3], e[4], field);
+    }
+  });
+
+  // ⑤ 见上：键是驼峰的那批映射表。整块的两道闸（键不进 NEVER、值全是界面文案）先判，
+  // 过了再逐条 emit —— emit 里那道标识值守卫仍然生效。
+  //
+  // 比 ② 多一道按值的闸：② 只按「该表键」查 byField，而 x==="Browser Automation" 这种
+  // 裸比较记不到表键名下，于是表值翻了、判断侧没翻。这里对每个值再查一次全局比较集
+  // （cmpAny，此时已由主遍历填满），代价是多挡几个值，换来的是不会改语义。
+  each(CAMEL_MAP_RE, (map) => {
+    const span = map[0];
+    CAMEL_ENTRY_RE.lastIndex = 0;
+    const entries = [...span.matchAll(CAMEL_ENTRY_RE)];
+    if (entries.length < 5) return;
+    if (entries.some((e) => NEVER_FIELDS.has(normalizeFieldName(e[1] ?? e[2])))) return;
+    if (!entries.every((e) => isUiText(e[4]))) return;
+    for (const e of entries) {
+      if (anyCmp.has(e[4])) continue;
+      emit(map.index + e.index + e[0].length - (e[3] + e[4] + e[3]).length, e[3], e[4], e[1] ?? e[2]);
     }
   });
 

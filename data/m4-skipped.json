@@ -668,5 +668,16 @@
   "The kernel info": "API/参数说明，喂给模型而非用户，与既有 59 条同处理",
   "Interactive resource Uri": "API/参数说明，喂给模型而非用户，与既有 59 条同处理",
   "Notebook controller Id": "API/参数说明，喂给模型而非用户，与既有 59 条同处理",
-  "Notebook editor title": "API/参数说明，喂给模型而非用户，与既有 59 条同处理"
+  "Notebook editor title": "API/参数说明，喂给模型而非用户，与既有 59 条同处理",
+  "Shell": "通用技术名词，中文界面惯例保留英文（与 VS Code 官方语言包一致）",
+  "Bot share": "语义不明（agent 来源分类表的一员），仅 1 处且无从确证渲染位置，保留原文避免误导",
+  "Autopilot PR": "Cursor 功能名（Autopilot），中文界面按惯例保留英文",
+  "Autopilot PR runtime": "同上（Autopilot 功能名的一部分）",
+  "Just now": "同一串在相对时间函数里另有裸 return 路径不参与改写，翻了会出现半中半英",
+  "Edited math.ts": "演示用示例内容（含示例文件名），非真实渲染串",
+  "Edited README.md": "同上（演示用示例内容）",
+  "Ran focused tests": "同上（演示用示例内容）",
+  "Ran type-check": "同上（演示用示例内容）",
+  "Codex": "产品名，保留英文",
+  "User Rule": "同一默认值另有函数参数与三元位置不参与改写，翻了会出现半中半英"
 }

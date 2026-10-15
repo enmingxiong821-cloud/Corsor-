@@ -167,6 +167,37 @@ test("scanBundle：≥5 成员的 id→文案映射表整块收，短载荷不�
   assert.deepEqual(scanBundle(`P={message:"Something failed",error:"Timed out"}`).map((h) => h.raw), []);
 });
 
+test("scanBundle：驼峰键的映射表也整块收（独立 Agent 设置面板那批）", () => {
+  // 键是驼峰时 ② 的「全小写」限定抓不到，Browser 那一组就是这么整片漏译的。
+  const src = `zme={section:"Browser",automation:"Browser Automation",protection:"Browser Protection",protectionDescription:"Prevent Agent from automatically running Browser tools",openWebLinks:"Open Web Links in Cursor Browser"}`;
+  assert.deepEqual(scanBundle(src).map((h) => [h.field, h.raw]), [
+    ["section", "Browser"],
+    ["automation", "Browser Automation"],
+    ["protection", "Browser Protection"],
+    ["protectionDescription", "Prevent Agent from automatically running Browser tools"],
+    ["openWebLinks", "Open Web Links in Cursor Browser"],
+  ]);
+
+  // 键里只要有一个落进 NEVER_FIELDS，整块丢 —— 实测这一步挡掉 Statsig 字段映射、
+  // 权限 scope、枚举 slug 三张「值是标识而非文案」的表，翻了会直接改运行时语义。
+  const telemetry = `T={eventCount:"ec",sdkKey:"k",sdkType:"st",sessionId:"sid",type:"Something"}`;
+  assert.deepEqual(scanBundle(telemetry).map((h) => h.raw), []);
+
+  // 有一个值不像界面文案（这里是 slug 风格），整块也不收 —— 挡掉 {invalid_type:"invalid_type"} 那类
+  const slugMap = `S={stepOne:"Will Select",stepTwo:"Adopt Step",stepThree:"Remeasure Area",stepFour:"Reveal Settle",slug:"browser-automation"}`;
+  assert.deepEqual(scanBundle(slugMap).map((h) => h.raw), []);
+});
+
+test("scanBundle：映射表的值在别处参与过等值比较就不翻（比 ② 多一道按值的闸）", () => {
+  // ② 只按表键查 byField，而 x==="Browser Automation" 这种裸比较记不到表键名下，
+  // 于是表值翻了、判断侧没翻。④ 对每个值再查一次全局比较集。
+  const src = `zme={section:"Browser",automation:"Browser Automation",protection:"Browser Protection",protectionDescription:"Prevent Agent from running Browser tools",openWebLinks:"Open Web Links"};
+               f=function(x){return x==="Browser Automation"}`;
+  const raws = scanBundle(src).map((h) => h.raw);
+  assert.equal(raws.includes("Browser Automation"), false, "参与过等值比较的表值不得改写");
+  assert.equal(raws.includes("Browser Protection"), true, "未参与比较的照常收");
+});
+
 test("scanBundle：命中的区间必须精确套住那个字面量", () => {
   // 键也带引号时，映射表的值位置不能靠 indexOf(引号) 找 —— 会落到键的开引号上，
   // 改写时把 "aria-la 截断，bundle 语法直接崩（实测在干跑时被 assertSyntax 拦下）。
@@ -455,6 +486,46 @@ test("installBundles：无从证明是自己的半成品时不自愈", () => {
   assert.equal(r.status, "no-change", "已无英文可翻");
   assert.ok(fs.readFileSync(sb.productJson).equals(before), "不得替来路不明的内容补校验值");
   assert.throws(() => assertIntegrity(sb.appDir), /完整性闸门未通过/, "损坏态原样留着，交给人判断");
+});
+
+test("installBundles：以备份原始英文为输入，第二轮能补上第一轮漏掉的串", () => {
+  // 左导航映射表规则要求「≥5 个成员、且值都是 UI 文案」。第一轮只译了两条，那两条变成
+  // 中文后不再算 UI 文案，整张表就只剩 3 个成员 —— 若以盘上文件为输入，规则不再成立，
+  // 剩下 3 条永远扫不到。这正是独立 Agent 设置面板整片英文的根因。
+  const src = 'N={general:"General",profile:"Profile",appearance:"Appearance",models:"Models",docs:"Docs"};';
+  const sb = m4sandbox({ checksums: { [CORE_REL]: base64Sha256(Buffer.from(src)) } });
+  fs.writeFileSync(sb.file(CORE_REL), src);
+  const args = (dict) => ({ ...bundleArgs(sb), dict });
+
+  installBundles(args({ General: "常规", Profile: "配置文件" }));
+  const mid = fs.readFileSync(sb.file(CORE_REL), "utf8");
+  assert.match(mid, /general:"常规"/);
+  assert.match(mid, /appearance:"Appearance"/, "第一轮装不下这条，留到第二轮");
+
+  const again = installBundles(
+    args({ General: "常规", Profile: "配置文件", Appearance: "外观", Models: "模型", Docs: "文档" })
+  ).find((s) => s.rel.endsWith("workbench.desktop.main.js"));
+
+  assert.equal(again.status, "patched", "第二轮必须真的改写，不能判成 no-change");
+  assert.equal(
+    fs.readFileSync(sb.file(CORE_REL), "utf8"),
+    'N={general:"常规",profile:"配置文件",appearance:"外观",models:"模型",docs:"文档"};'
+  );
+});
+
+test("installBundles：盘上内容来路不明时拒绝用旧备份覆盖", () => {
+  // 输入改成取备份之后，写入内容不再依赖盘上现状 —— 所以必须拦住「盘上被别人改过」的
+  // 情况，否则会拿旧备份把第三方的改动整个抹掉。
+  const src = 'x={label:"Save"};';
+  const sb = m4sandbox({ checksums: { [CORE_REL]: base64Sha256(Buffer.from(src)) } });
+  fs.writeFileSync(sb.file(CORE_REL), src);
+  installBundles(bundleArgs(sb)); // 建立备份
+
+  fs.writeFileSync(sb.file(CORE_REL), 'x={label:"Save"};/* 别的工具改过 */');
+  const r = installBundles(bundleArgs(sb)).find((s) => s.rel.endsWith("workbench.desktop.main.js"));
+
+  assert.equal(r.status, "foreign");
+  assert.match(fs.readFileSync(sb.file(CORE_REL), "utf8"), /别的工具改过/, "不得覆盖");
 });
 
 test("installBundles：闸门不过时回滚 bundle 与 product.json", () => {

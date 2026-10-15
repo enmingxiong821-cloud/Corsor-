@@ -67,6 +67,76 @@ export const UI_FIELDS = new Set([
   "locationName",
   "loadingAction",
   "completedAction",
+  // 2026-10-15 二轮补入：`*Label` 家族里「确实承载界面文案」的那批。
+  //
+  // 做法不是「凡是 *Label 一律收」—— 实测 362 个候选字段里只有这 58 个能产生新串，
+  // 其余要么值已覆盖、要么值不是界面文案。逐个按增量筛出来，白名单保持最小可审计。
+  // 每一批的价值：云环境搭建进度（running/done/failed/warning 四态 × 15 步）、
+  // 设置页与独立 Agent 窗口的状态胶囊（pill/status/kind/source）、
+  // 空态与筛选（empty/content/activeScopeEmpty）、CI 修复胶囊（fixCiPill*）。
+  //
+  // 刻意不收的两个：
+  //   · displayLabel —— 唯一新站点是用量统计图例 {type:"tab",label:"tab",displayLabel:"Tab"}，
+  //     那里的 Tab 指 Cursor Tab 补全，而词典里 "Tab" 是「选项卡」，收了会把图例译错
+  //   · productLabel 的值是产品名（Codex），已在 m4-skipped.json 逐条保留
+  "runningLabel",
+  "doneLabel",
+  "failedLabel",
+  "warningLabel",
+  "pillLabel",
+  "kindLabel",
+  "settingsLabel",
+  "tooltipLabel",
+  "statusLabel",
+  "emptyLabel",
+  "actionLabel",
+  "dismissLabel",
+  "loadingLabel",
+  "compactLabel",
+  "openLabel",
+  "contentLabel",
+  "inlineLabel",
+  "sourceLabel",
+  "inputAriaLabel",
+  "dropdownAriaLabel",
+  "busyAriaLabel",
+  "copyAriaLabel",
+  "fallbackAgentLabel",
+  "groupedLabel",
+  "fullTabActionLabel",
+  "moreLabel",
+  "lessLabel",
+  "closeTrayLabel",
+  "sessionKindLabel",
+  "productLabel",
+  "legacyNewAgentLabel",
+  "cloudOptionLabel",
+  "localOptionLabel",
+  "fixCiPillSingleLabel",
+  "fixCiPillLoadingLabel",
+  "fixCiPillLoadingProgressLabel",
+  "fsdFixCiPillSingleLabel",
+  "fsdFixCiPillLoadingLabel",
+  "fsdFixCiPillLoadingProgressLabel",
+  "downloadCtaLabel",
+  "openCtaLabel",
+  "nowLabel",
+  "primaryActionLabel",
+  "ctaLabel",
+  "newAutomationButtonLabel",
+  "quotableLabel",
+  "folderBackLabel",
+  "workersLabel",
+  "executionLabel",
+  "activeScopeEmptyLabel",
+  "pluralLabel",
+  "buildLabel",
+  "currentLabel",
+  "breadcrumbLabel",
+  "rootLabel",
+  "projectAgentsSectionLabel",
+  "dontAskAgainLabel",
+  "allLabel",
 ]);
 
 export const NEVER_FIELDS = new Set([

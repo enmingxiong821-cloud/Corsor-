@@ -8,7 +8,7 @@ Cursor 界面简体中文汉化工程。**开工前请读完本文件。**
 且不破坏 Cursor、不影响其正常使用、每一步都可回滚。
 
 **已交付**：`install.cmd` 一键安装、`sync` + 计划任务自动跟随 Cursor 升级（NLS + AI 面板两条通道）。
-**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 4,853 条、保留英文 670 条。
+**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 5,065 条、保留英文 681 条。
 **不是**运行时注入，而是改写三个 bundle 里的字符串常量，外加一条 CSS 字体通道：
 
 | 目标 | 校验 | 处理 |
@@ -33,14 +33,15 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 只定义 `--vscode-font-family` 一个就够 —— `--cursor-font-family-sans` 的定义链以它兜底。
 幂等靠 CSS 里的标记行 `/* cursor-zh-fontfix */`，Cursor 升级换掉该文件后标记消失、自动重加。
 
-**候选覆盖率**（2026-10-15 修正取值规则后重算，未处理全部清零）：
+**候选覆盖率**（2026-10-15 二轮补入规则 ⑤ 与 58 个 `*Label` 字段后重算，未处理全部清零）：
 
 | 目标 | 命中 | 候选（去重） | 已译 | 保留英文 | 未处理 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| glass | 7,754 处 | 5,039 | 4,395 | 644 | **0** |
-| anysphere | 789 处 | 585 | 550 | 35 | **0** |
-| 内核 desktop.main | 3,995 处 | 2,840 | 2,503 | 337 | **0** |
+| glass | 8,071 处 | 5,242 | 4,588 | 654 | **0** |
+| anysphere | 817 处 | 605 | 570 | 35 | **0** |
+| 内核 desktop.main | 3,570 处 | 2,773 | 2,435 | 338 | **0** |
 
+`data/m4.json` 5,065 条；`data/m4-skipped.json` 681 条。
 早先那 59 条「喂给模型而非用户」的内核 JSON-schema `description` 现已收进 `data/m4-skipped.json`
 逐条注明原因，与其余保留项合并统计 —— **不再另设「未处理」这一状态**。
 `out/vs/workbench/workbench.xai-commerce-prepaid.js` 同样免校验，但实测命中 0 条，无需处理。
@@ -87,13 +88,27 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 - 那 59 条内核 JSON-schema `description` 已按「喂给模型而非用户」的判断保留英文，
   收进 `data/m4-skipped.json` 并逐条注明原因 —— **主 IDE 已无「未处理」候选**。
 - ★ **M4 取值形态**（2026-10-15 补齐，实现在 `src/m4/scan.mjs`）。除最基础的
-  `字段:"文案"` 外，还有四类必须单独识别，否则整片漏译：
+  `字段:"文案"` 外，还有五类必须单独识别，否则整片漏译：
   ① `title:{value:"…",original:"…"}` 成对结构（`value` 本身在 `NEVER_FIELDS` 里，
      靠 `TITLE_OBJ_RE` 单独兜住）；② 设置页那份 ≥5 成员的 `id:"文案"` **左导航映射表**
      （键是小写 id，永远匹配不上 `UI_FIELDS`，靠 `NAV_MAP_RE`/`NAV_ENTRY_RE` 识别）；
   ③ `||"…"` / `??"…"` 兜底默认值（`FALLBACK_RE`）；④ `? "…" : "…"` 三元分支
      （`TERNARY_RE`，**两分支必须都是文案才翻** —— 否则会破坏
-     `e?"Top":"InlineStart"` 这类 CSS/枚举三元式）。
+     `e?"Top":"InlineStart"` 这类 CSS/枚举三元式）；⑤ **驼峰键映射表**
+     （`CAMEL_MAP_RE`，`zme={section:"Browser",automation:"Browser Automation",…}`）。
+  ⑤ 与 ② 形状相同、只是键为驼峰，② 的「键必须全小写」限定抓不到它 —— 独立 Agent
+  设置面板的 Browser 那一组就是这么整片漏掉的。⑤ 四道闸：整块 ≥5 成员、任一键归一后
+  不进 `NEVER_FIELDS`、每个值都过 `isUiText`、每个值再查一次全局比较集 `cmpAny`。
+  前三道缺一不可 —— 实测会放进 Statsig 字段映射（`{EventCount:"ec",…}`）、权限 scope
+  （`{ReadSpend:"team.spend.read",…}`）、枚举 slug（`{SOFTWARE_ENGINEER:"software-engineer",…}`），
+  值被翻成中文写回就是直接改运行时语义。
+- ★ **`*Label` 白名单是逐个筛出来的，不是按后缀批量收**（`src/m4/fields.mjs`）。
+  2026-10-15 从两个免校验 bundle 里扫出 362 个属性位置出现过的 `*Label` 字段，
+  逐个加进去量增量，**只有 58 个能产生新串**，只把这 58 个并入 `UI_FIELDS`。
+  价值最大的是云环境搭建进度（`running`/`done`/`failed`/`warning` 四态 × 15 步）。
+  **刻意不收 `displayLabel`**：它唯一的增量站点是用量统计图例
+  `{type:"tab",label:"tab",displayLabel:"Tab"}`，那里的 Tab 指 Cursor Tab 补全，
+  而词典里 `"Tab"` 是「选项卡」，收了会把图例译错。放宽这条前先按增量重测。
 - ★ **三处会真出错的解析细节**，改动前务必看清：
   ① 三元与兜底命中的位置没有字段可查，`cmpAny` 守卫靠**同位置是否已被
      `collectIdentityValues` 收录**来决定翻不翻；② 变量声明列表 `var A,B,C` 一度被
