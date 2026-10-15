@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 求助
+    url: https://github.com/enmingxiong821-cloud/Corsor-/releases/latest
+    about: 先看最新版 Release 说明里的安装步骤与「已知残留」清单，多数问题那里已有答案。
+  - name: 安全相关问题
+    url: https://github.com/enmingxiong821-cloud/Corsor-/security/advisories/new
+    about: 请勿公开提交；用私密安全公告。

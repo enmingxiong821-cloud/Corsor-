@@ -1,0 +1,91 @@
+name: Bug 报告
+description: 汉化没生效、界面显示异常、Cursor 起不来等问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先跑一遍下面三条**只读**自检，把结果贴在第 6 项里 —— 大部分问题看输出就能定位。
+
+        ```bash
+        node src/cli.mjs scan && node src/cli.mjs verify && node --test "tests/**/*.test.mjs"
+        ```
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 问题描述
+      description: 什么地方不对？哪个窗口、哪个界面？
+      placeholder: 例如：设置页「外观」那一组还是英文
+    validations:
+      required: true
+
+  - type: input
+    id: cursor-version
+    attributes:
+      label: Cursor 版本
+      description: 帮助 → 关于 里的版本号（含 commit 更好）
+      placeholder: 3.24.18 / be4c9e5
+    validations:
+      required: true
+
+  - type: input
+    id: zh-version
+    attributes:
+      label: 汉化版本
+      description: 你用的是哪个 tag 或 commit
+      placeholder: zh-3.24.18.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how
+    attributes:
+      label: 安装方式
+      options:
+        - 双击 install.cmd
+        - 手动跑 node src/cli.mjs install --yes
+        - 只跑了 patch（只汉化 AI 面板）
+    validations:
+      required: true
+
+  - type: textarea
+    id: selfcheck
+    attributes:
+      label: 自检输出
+      description: 上面三条命令的完整输出（只读命令，不会改动任何文件）
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 完全退出 Cursor
+        2. 双击 install.cmd
+        3. 打开 Cursor，进入设置 → 外观
+        4. 看到 …
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 若与自动跟随（sync）有关，请附 logs/sync.log 中相应那几行
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已经完全退出 Cursor（含托盘图标）后才执行的写入
+          required: true
+        - label: 我不是在使用非本仓库来源的第三方汉化包
+          required: false

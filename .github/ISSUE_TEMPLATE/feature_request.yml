@@ -1,0 +1,46 @@
+name: 功能建议 / 漏译反馈
+description: 建议新功能，或反馈某处文案仍是英文
+title: "[建议] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 反馈**漏译**请直接跳到第 2 项：本工程刻意保留了一部分英文文案
+        > （模型参数 schema、遥测指标、调试标签、专有名词，以及翻了会导致判断失配的标识值），
+        > 清单见 `data/m4-skipped.json`。先查一下是否已在其中，能省一轮往返。
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你希望做什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: missing
+    attributes:
+      label: 若与漏译有关：英文原文 + 出现位置
+      description: 原文照抄（区分大小写），并说明在哪个界面看到的
+      placeholder: |
+        英文原文：Appearance
+        出现位置：设置 → 外观 那一列左导航
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: why
+    attributes:
+      label: 为什么需要它
+      description: 你实际遇到的场景，比单纯「更好看」更有说服力
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: 参与意愿
+      options:
+        - label: 我愿意提交 PR 实现它
+          required: false

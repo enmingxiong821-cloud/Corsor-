@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 单元测试与静态校验
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # scan / verify 需要本机装好的 Cursor，CI 上没有，故只跑与安装环境无关的部分。
+      - name: 源码语法检查
+        shell: bash
+        run: |
+          set -e
+          for f in $(git ls-files '*.mjs'); do
+            node --check "$f"
+          done
+          echo "语法检查通过"
+
+      - name: 数据文件 JSON 校验
+        shell: bash
+        run: |
+          set -e
+          for f in data/*.json; do
+            node -e 'const fs=require("fs");const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(!v||typeof v!=="object"||Array.isArray(v))throw new Error("顶层不是对象");' "$f"
+            echo "ok  $f"
+          done
+
+      - name: 单元测试
+        shell: bash
+        run: node --test "tests/**/*.test.mjs"
