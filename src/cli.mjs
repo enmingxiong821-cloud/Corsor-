@@ -18,7 +18,7 @@ import { renderText, renderMissingTop, writeReport } from "./align/report.mjs";
 import { loadOverrides, countOverrides } from "./dict/load.mjs";
 import { assemble, writeOverrides } from "./dict/assemble.mjs";
 import { validateOverrides, validateResolved } from "./dict/validate.mjs";
-import { buildPatchedMessages, renderDiffSummary } from "./deploy/nls.mjs";
+import { buildPatchedMessages, renderDiffSummary, looksTranslatedTable } from "./deploy/nls.mjs";
 import { install } from "./deploy/install.mjs";
 import { restore, listBackups } from "./deploy/restore.mjs";
 import { describeCache } from "./deploy/cache.mjs";
@@ -29,6 +29,10 @@ import {
   readManifest,
   sha256Hex,
 } from "./deploy/backup.mjs";
+import { loadM4Dict, validateM4Dict, countM4Dict } from "./m4/dict.mjs";
+import { installBundles, installFontFix } from "./m4/deploy.mjs";
+import { M4_TARGETS } from "./m4/targets.mjs";
+import { loadOriginalNlsEnglish } from "./m4/nlsbase.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const DATA_DIR = path.join(ROOT, "data");
@@ -48,6 +52,15 @@ function baselineTable(paths, product) {
     if (fs.existsSync(backup)) return backup;
   } catch {
     // 备份目录名不合法（product 读不到）时退回当前文件
+  }
+  // 退回磁盘上那份之前先确认它确实是英文表。它可能已经是本工具写过的中文 —— 那样
+  // 覆盖率基准就失真了，而且是「静默失真」：历史上正是这条静默回退把污染藏了起来。
+  const current = fs.readFileSync(paths.nlsMessages);
+  if (looksTranslatedTable(current)) {
+    console.error(
+      `警告：备份里没有 ${TARGET_REL}，而磁盘上那份已经是中文 —— 覆盖率基准会失真。\n` +
+        "      本轮数字不可信，请先确认备份是否完好（`restore` 或重新 `install`）。"
+    );
   }
   return paths.nlsMessages;
 }
@@ -246,6 +259,23 @@ function cmdBuild() {
   if (mismatch) process.exitCode = 1;
 }
 
+// 手工命令（install / patch / restore）在写入前必须确认 Cursor 已完全退出。
+// sync 用自己那套「跳过本轮」的措辞，不共用这个 —— 无人值守通道不该以失败退出。
+function requireCursorClosed() {
+  const running = isCursorRunning();
+  if (running === null) {
+    console.error("无法判定 Cursor 是否在运行，不在不确定时写入。");
+    process.exitCode = 1;
+    return false;
+  }
+  if (running) {
+    console.error("Cursor 正在运行，不能改写。—— 请完全退出 Cursor（含托盘）后重试。");
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
+}
+
 function cmdInstall(argv) {
   const dryRun = argv.includes("--dry-run");
   if (!dryRun && !argv.includes("--yes")) {
@@ -253,6 +283,7 @@ function cmdInstall(argv) {
     process.exitCode = 1;
     return;
   }
+  if (!dryRun && !requireCursorClosed()) return;
 
   const paths0 = locate();
   const defaultMessages = JSON.parse(
@@ -281,6 +312,8 @@ function cmdInstall(argv) {
 
 function cmdRestore(argv) {
   const dryRun = argv.includes("--dry-run");
+  if (!dryRun && !requireCursorClosed()) return;
+
   const paths0 = locate();
   const product = readProduct(paths0);
 
@@ -345,6 +378,8 @@ function note(line) {
   syncLog(line);
 }
 
+// sync 跑两条互不相干的通道：NLS 层（改数据表）与 M4（改 AI 面板 bundle）。
+// 前置检查共用；任一条失败只记自己的 exitCode，不影响另一条。
 function cmdSync(argv) {
   const dryRun = argv.includes("--dry-run");
   const say = (s) => {
@@ -373,6 +408,11 @@ function cmdSync(argv) {
     return;
   }
 
+  syncNlsChannel({ paths, product, dryRun, say, note });
+  syncBundlesChannel({ paths, product, dryRun, say, note });
+}
+
+function syncNlsChannel({ paths, product, dryRun, say, note }) {
   const target = path.join(paths.appDir, TARGET_REL);
   const dir = backupRoot(ROOT, product);
   const manifest = readManifest(dir);
@@ -439,8 +479,141 @@ function cmdSync(argv) {
   );
 }
 
-// 只读：确认 6 个被校验文件仍然完好，并复现 docs/05 §6.1 的金标准断言。
-// 本工程不触碰任何被校验文件，所以这个命令应当永远全绿；一旦变红说明有东西改坏了 Cursor。
+// M4 自动通道。改写后 bundle 里已无英文候选，重跑自然是 0 处，所以幂等，
+// 不必像 NLS 那样做「内容是否等于上次写入值」的快速判定。
+// 内核 bundle 的排除基准：备份里的「原始英文 NLS 表」。
+// 取不到就返回 null —— installBundles 会跳过内核目标而不是硬改。
+function coreNlsExclude(product) {
+  const base = loadOriginalNlsEnglish({ projectRoot: ROOT, product });
+  return base ? base.set : null;
+}
+
+function syncBundlesChannel({ paths, product, dryRun, say, note }) {
+  const dictFile = path.join(DATA_DIR, "m4.json");
+  const dict = loadM4Dict(dictFile);
+  if (countM4Dict(dict) === 0) {
+    note("跳过：M4 译文表为空或不存在，本轮不改动 AI 面板。");
+    return;
+  }
+  const dictCheck = validateM4Dict(dict);
+  if (dictCheck.errors.length) {
+    say(`跳过：M4 译文表有 ${dictCheck.errors.length} 处问题，本轮不改动 AI 面板。`);
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    const summary = installBundles({
+      paths,
+      product,
+      projectRoot: ROOT,
+      dict,
+      nlsExclude: coreNlsExclude(product),
+      dryRun,
+      log: (s) => note(s),
+    });
+    for (const s of summary) {
+      const tail = s.checksummed ? "（已重算 product.json 校验值）" : "";
+      if (s.status === "would-patch") {
+        say(`预演：将改写 ${s.rel} —— ${s.changed} 处 / ${s.applied} 条文案${tail}。`);
+      } else if (s.status === "patched") {
+        say(`已改写 ${s.rel} —— ${s.changed} 处 / ${s.applied} 条文案${tail}。`);
+      } else if (s.status === "healed") {
+        say(`已修复 ${s.rel} —— 上次写入未完成，本次补算 product.json 校验值。`);
+      }
+    }
+    if (!summary.some((s) => ["patched", "would-patch", "healed"].includes(s.status))) {
+      note("AI 面板 bundle 已是最新，无需改写。");
+    }
+
+    // 字体通道：与译文无关，只在 Cursor 升级换掉 CSS 后才会真的动手，所以也放进自动通道。
+    const font = installFontFix({ paths, product, projectRoot: ROOT, dryRun, log: (s) => note(s) });
+    if (font.status === "patched") {
+      say(`已给 ${font.rel} 追加字体规则 —— 中文改用微软雅黑，与官方 zh-Hans 一致（已重算校验值）。`);
+    } else if (font.status === "would-patch") {
+      say(`预演：将给 ${font.rel} 追加字体规则（已重算校验值）。`);
+    } else if (font.status === "healed") {
+      say(`已修复 ${font.rel} —— 上次写入未完成，本次补算 product.json 校验值。`);
+    }
+  } catch (e) {
+    say(`AI 面板改写失败：${e.message}`);
+    process.exitCode = 1;
+  }
+}
+
+// M4：把 Cursor 自有 AI 面板 bundle 里的硬编码文案换成中文，并修正自有 UI 的字体链。
+//
+// 与 NLS 通道的区别在于改的是可执行代码与样式，不是数据表，所以多两道保险：
+// 写入前 node --check 语法校验（仅 bundle），以及写入时 Cursor 必须已退出。
+// 被校验的目标（内核 bundle、workbench.desktop.main.css）改完重算 product.json 校验值，
+// 并过完整性闸门，不过就自动回滚。
+function cmdPatch(argv) {
+  const dryRun = argv.includes("--dry-run");
+  if (!dryRun && !argv.includes("--yes")) {
+    console.error("patch 会改写 Cursor 安装目录。确认请加 --yes，预演请加 --dry-run。");
+    process.exitCode = 1;
+    return;
+  }
+
+  const paths = locate();
+  const product = readProduct(paths);
+
+  const dictFile = path.join(DATA_DIR, "m4.json");
+  const dict = loadM4Dict(dictFile);
+  const total = countM4Dict(dict);
+  if (total === 0) {
+    console.error(`译文表为空或不存在：${path.relative(ROOT, dictFile)}`);
+    process.exitCode = 1;
+    return;
+  }
+  const dictCheck = validateM4Dict(dict);
+  if (dictCheck.errors.length) {
+    console.error(`M4 译文表有 ${dictCheck.errors.length} 处问题：`);
+    for (const e of dictCheck.errors.slice(0, 20)) console.error(`  · ${e}`);
+    console.error("未写入任何文件，已中止。");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!dryRun && !requireCursorClosed()) return;
+
+  console.log("");
+  console.log("M4 · Cursor AI 面板汉化");
+  console.log("─".repeat(56));
+  console.log(`  译文表    ${total} 条`);
+  const core = M4_TARGETS.filter((t) => t.checksummed).length;
+  console.log(
+    `  目标文件  ${M4_TARGETS.length} 个（${M4_TARGETS.length - core} 个免校验，${core} 个被校验需重算哈希）`
+  );
+  console.log("  字体通道  workbench.desktop.main.css（被校验，需重算哈希）");
+  console.log("");
+  try {
+    installBundles({
+      paths,
+      product,
+      projectRoot: ROOT,
+      dict,
+      nlsExclude: coreNlsExclude(product),
+      dryRun,
+      log: (s) => console.log(s),
+    });
+    installFontFix({ paths, product, projectRoot: ROOT, dryRun, log: (s) => console.log(s) });
+  } catch (e) {
+    console.error("");
+    console.error(e.message);
+    process.exitCode = 1;
+    return;
+  }
+  console.log("");
+  console.log(dryRun ? "--dry-run：未改动任何文件。" : "完成。请完全退出 Cursor 后重新打开。");
+}
+
+// 只读：确认被校验文件仍然完好，并复现 docs/05 §6.1 的金标准断言。
+//
+// 金标准断言（算法自检）必须对**原始字节**做 —— 内核 bundle 一旦被 M4 改写，
+// 盘上就不是原始内容了，所以优先取备份里的原始文件来验算法，盘上文件留给
+// checksums 那一段去核对。这样「算法对不对」和「运行时能不能过 IntegrityService」
+// 两件事各验各的，改写之后也仍然有效。
 const GOLDEN = {
   "vs/code/electron-sandbox/workbench/workbench.html":
     "BZ8Zb4TGBbDPaaGjA+MuDJxaFsxjmmG0YMyttD4zgcU",
@@ -453,19 +626,29 @@ function cmdVerify() {
   const product = JSON.parse(fs.readFileSync(paths.productJson, "utf8"));
   const checksums = product.checksums || {};
 
+  let backupDir = null;
+  try {
+    backupDir = backupRoot(ROOT, readProduct(paths));
+  } catch {
+    /* 拿不到版本/发行版就没有备份可比，退回盘上文件 */
+  }
+
   console.log("");
   console.log("完整性校验");
   console.log("─".repeat(64));
 
   const golden = [];
   for (const [rel, expected] of Object.entries(GOLDEN)) {
-    const file = path.join(paths.outDir, rel);
+    const backupFile = backupDir ? path.join(backupDir, "files", "out", rel) : null;
+    const useBackup = backupFile && fs.existsSync(backupFile);
+    const file = useBackup ? backupFile : path.join(paths.outDir, rel);
     if (!fs.existsSync(file)) {
       golden.push(`  缺失  ${rel}`);
       continue;
     }
     const got = base64Sha256(fs.readFileSync(file));
-    golden.push(`${got === expected ? "  OK  " : " FAIL "} 金标准  ${rel}`);
+    const tag = useBackup ? "（备份原始文件）" : "（盘上文件）";
+    golden.push(`${got === expected ? "  OK  " : " FAIL "} 金标准  ${rel} ${tag}`);
   }
 
   const rows = [];
@@ -583,6 +766,7 @@ const COMMANDS = {
   restore: cmdRestore,
   cache: cmdCache,
   sync: cmdSync,
+  patch: cmdPatch,
 };
 
 function main() {
@@ -605,6 +789,7 @@ function main() {
         "  install [--dry-run] [--yes]   写入 Cursor 并失效 clp 缓存",
         "  restore [--dry-run]           从备份还原",
         "  sync [--dry-run]              自动跟随：版本变化或被覆盖时重新写入（供计划任务调用）",
+        "  patch [--dry-run] [--yes]     M4：改写 AI 面板 bundle 的硬编码文案 + UI 字体规则",
       ].join("\n")
     );
     return;

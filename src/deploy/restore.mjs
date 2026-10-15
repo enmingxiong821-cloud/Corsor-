@@ -67,7 +67,11 @@ export function restore({ paths, product, projectRoot, dryRun = false, log = () 
       continue;
     }
 
-    fs.writeFileSync(target, backupBuf);
+    // 原子写：还原本身也发生在异常时刻（Cursor 起不来、被别的工具改坏），
+    // 半截文件会让「本来还能救」变成「彻底没救」。
+    const tmp = `${target}.cursor-zh.tmp`;
+    fs.writeFileSync(tmp, backupBuf);
+    fs.renameSync(tmp, target);
     if (sha256Hex(fs.readFileSync(target)) !== entry.sha256) {
       throw new Error(`还原后哈希不符：${entry.relativePath}，备份文件可能已损坏。`);
     }

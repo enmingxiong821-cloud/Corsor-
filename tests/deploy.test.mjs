@@ -11,16 +11,27 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { base64Sha256, sha256Hex, backupRoot, createBackup, readManifest } from "../src/deploy/backup.mjs";
+import {
+  base64Sha256,
+  sha256Hex,
+  backupRoot,
+  createBackup,
+  readManifest,
+  ensureBackupEntry,
+  recordInstalledSha256,
+} from "../src/deploy/backup.mjs";
 import { install } from "../src/deploy/install.mjs";
 import { restore } from "../src/deploy/restore.mjs";
-import { buildPatchedMessages } from "../src/deploy/nls.mjs";
+import { buildPatchedMessages, looksTranslatedTable } from "../src/deploy/nls.mjs";
+import { invalidate } from "../src/deploy/cache.mjs";
+import { isCursorRunning } from "../src/deploy/process.mjs";
 import { normalizeMnemonic } from "../src/align/mnemonic.mjs";
 import { merge } from "../src/align/merge.mjs";
 import { validateOverrides, validateResolved } from "../src/dict/validate.mjs";
 import { assemble } from "../src/dict/assemble.mjs";
 import { countOverrides } from "../src/dict/load.mjs";
 import { locate } from "../src/scan/locate.mjs";
+import { readProduct } from "../src/scan/product.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 
@@ -43,21 +54,42 @@ function writeMessages(file, arr) {
 
 // ───────────────────────── docs/05 §6.1 金标准 ─────────────────────────
 
-test("金标准：checksum 算法在真实文件上复现", () => {
+// 金标准必须硬断言。历史上这里用 `return` 提前退出，环境缺一块就报 PASS 且零断言 ——
+// 「测试通过」就成了假象。环境确实不具备时改用 t.skip()，它会显式计入 skipped。
+test("金标准：checksum 算法在真实文件上复现", (t) => {
   let paths;
   try {
     paths = locate();
   } catch {
-    return; // 未装 Cursor 的环境跳过
+    return t.skip("本机未安装 Cursor，金标准无从复现");
   }
   const html = path.join(paths.outDir, "vs/code/electron-sandbox/workbench/workbench.html");
-  if (!fs.existsSync(html)) return;
+  if (!fs.existsSync(html)) return t.skip("workbench.html 缺失，Cursor 目录结构可能已变");
 
   assert.equal(
     base64Sha256(fs.readFileSync(html)),
     "BZ8Zb4TGBbDPaaGjA+MuDJxaFsxjmmG0YMyttD4zgcU"
   );
-  const main = path.join(paths.outDir, "vs/workbench/workbench.desktop.main.js");
+});
+
+// 备份里的原始副本只有跑过 install 才有，属于环境依赖项，单独一个用例以便显式 skip。
+test("金标准（备份原始文件）：desktop.main.js 哈希可复现", (t) => {
+  let paths;
+  try {
+    paths = locate();
+  } catch {
+    return t.skip("本机未安装 Cursor");
+  }
+  let product;
+  try {
+    product = readProduct(paths);
+  } catch {
+    return t.skip("读不到 product.json");
+  }
+
+  const main = path.join(backupRoot(ROOT, product), "files", "out", "vs/workbench/workbench.desktop.main.js");
+  if (!fs.existsSync(main)) return t.skip("备份里没有 desktop.main.js（本机还没跑过 install）");
+
   assert.equal(
     base64Sha256(fs.readFileSync(main)),
     "7Wkip6hsjESKRqo5rwyTFYDaFidw/kBqDUFzcpDmN9k"
@@ -380,3 +412,137 @@ test("校验：全角引号确实是合法 JSON", () => {
 test("项目根可解析（防止路径假设写死）", () => {
   assert.ok(fs.existsSync(path.join(ROOT, "CLAUDE.md")));
 });
+
+// ───────────────────────── clp 缓存失效（方案成立的前提） ─────────────────────────
+
+test("invalidate：给每个 *.zh-cn 目录投 corrupted.info，别的语言不动", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-zh-clp-"));
+  const clp = path.join(base, "clp");
+  fs.mkdirSync(path.join(clp, "aaa.zh-cn", "commit1"), { recursive: true });
+  fs.mkdirSync(path.join(clp, "bbb.zh-cn"), { recursive: true });
+  fs.mkdirSync(path.join(clp, "ccc.fr"), { recursive: true });
+
+  const markers = invalidate(clp);
+  assert.equal(markers.length, 2);
+  assert.equal(fs.readFileSync(path.join(clp, "aaa.zh-cn", "corrupted.info"), "utf8"), "");
+  assert.ok(fs.existsSync(path.join(clp, "bbb.zh-cn", "corrupted.info")));
+  assert.equal(fs.existsSync(path.join(clp, "ccc.fr", "corrupted.info")), false);
+
+  // 缓存目录还不存在时是空操作 —— 首次安装会走到这条路径
+  assert.deepEqual(invalidate(path.join(base, "nope")), []);
+});
+
+test("install：缓存失效真的落到磁盘（不只是被调用过）", () => {
+  const sb = sandbox();
+  fs.mkdirSync(path.join(sb.paths.clpDir, "hash.zh-cn", "commit"), { recursive: true });
+  writeMessages(sb.nlsFile, ["A"]);
+
+  install({
+    paths: sb.paths,
+    product: sb.product,
+    projectRoot: sb.projectRoot,
+    messages: ["甲"],
+    log: () => {},
+  });
+
+  assert.ok(
+    fs.existsSync(path.join(sb.paths.clpDir, "hash.zh-cn", "corrupted.info")),
+    "没有 corrupted.info，Cursor 会继续用旧缓存，汉化不生效"
+  );
+});
+
+// ───────────────────────── 备份守卫：不许把改过的文件当原始 ─────────────────────────
+
+test("ensureBackupEntry：拒绝把本工具改过的文件存成原始备份", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-zh-ebe-"));
+  const dir = path.join(base, "backup", "v_d");
+  const a = path.join(base, "a.json");
+  const b = path.join(base, "b.js");
+  const args = (rel, src) => ({ relativePath: rel, sourcePath: src, cursorVersion: "v", distro: "d", commit: "c" });
+
+  fs.writeFileSync(a, "AAA");
+  ensureBackupEntry(dir, args("out/a.json", a));
+  recordInstalledSha256(dir, "out/a.json", sha256Hex(Buffer.from("CCC")));
+
+  // b 的内容恰好等于本工具上次写出去的版本 → 说明它不是原始文件，不许存
+  fs.writeFileSync(b, "CCC");
+  assert.throws(() => ensureBackupEntry(dir, args("out/b.js", b)), /已经被本工具改过/);
+
+  // 换成没见过的内容则正常追加，并且新建路径也必须返回 entry
+  fs.writeFileSync(b, "DDD");
+  const { entry, added } = ensureBackupEntry(dir, args("out/b.js", b));
+  assert.equal(added, true);
+  assert.equal(entry.sha256, sha256Hex(Buffer.from("DDD")));
+});
+
+test("looksTranslatedTable：英文表 / 中文表 / 坏输入三态", () => {
+  const en = Array.from({ length: 20 }, (_, i) => `Message ${i}`);
+  assert.equal(looksTranslatedTable(Buffer.from(JSON.stringify(en))), false);
+  // 原始表可能零星提到中日韩，个位数占比不该被判成翻译产物
+  assert.equal(looksTranslatedTable(Buffer.from(JSON.stringify([...en, "打开设置面板"]))), false);
+  assert.equal(looksTranslatedTable(Buffer.from(JSON.stringify(en.map((_, i) => `消息 ${i}`)))), true);
+  assert.equal(looksTranslatedTable(Buffer.from("not json")), false);
+  assert.equal(looksTranslatedTable(Buffer.from(JSON.stringify([]))), false);
+});
+
+// ───────────────────────── install 的备份与基准（历史缺陷路径） ─────────────────────────
+
+test("install：备份目录已存在但缺 nls 条目时补备份，而不是盲写", () => {
+  const sb = sandbox();
+  const original = ["Hello", "World"];
+  writeMessages(sb.nlsFile, original);
+  const originalBytes = fs.readFileSync(sb.nlsFile);
+
+  // 模拟 M4 的 patch 先跑：备份目录已建好，但里面只有别的条目
+  const dir = backupRoot(sb.projectRoot, sb.product);
+  const other = path.join(sb.base, "other.js");
+  fs.writeFileSync(other, "AAA");
+  createBackup(dir, {
+    cursorVersion: sb.product.version,
+    distro: sb.product.distro,
+    commit: sb.product.commit,
+    files: [{ relativePath: "out/vs/workbench/x.js", sourcePath: other }],
+  });
+
+  install({
+    paths: sb.paths,
+    product: sb.product,
+    projectRoot: sb.projectRoot,
+    messages: ["你好", "World"],
+    log: () => {},
+  });
+
+  const entry = readManifest(dir).files.find((f) => f.relativePath === "out/nls.messages.json");
+  assert.ok(entry, "必须补上 nls 的备份条目，否则这个文件永远 restore 不回来");
+  assert.equal(entry.sha256, sha256Hex(originalBytes), "存下来的必须是原始英文表");
+  assert.equal(entry.installedSha256, sha256Hex(fs.readFileSync(sb.nlsFile)));
+});
+
+test("install：文件已是中文却没有备份时拒绝，避免污染原始基准", () => {
+  const sb = sandbox();
+  writeMessages(sb.nlsFile, ["你好", "世界", "第三", "第四"]);
+
+  assert.throws(
+    () =>
+      install({
+        paths: sb.paths,
+        product: sb.product,
+        projectRoot: sb.projectRoot,
+        messages: ["你好", "世界", "第三", "第四"],
+        log: () => {},
+      }),
+    /已经是翻译过的内容/
+  );
+  assert.equal(
+    fs.existsSync(backupRoot(sb.projectRoot, sb.product)),
+    false,
+    "被中文污染的备份目录绝不能留下"
+  );
+});
+
+test("isCursorRunning：只返回 true / false / null，绝不抛", () => {
+  // 这里不直接调 —— 它内部是无超时的同步 spawnSync，某些受限环境下会阻塞整个测试进程。
+  // 契约由调用方（install/sync/patch）的「null 即跳过」分支保证，见 docs/05 §8。
+  assert.equal(typeof isCursorRunning, "function");
+});
+

@@ -43,3 +43,26 @@ export function renderDiffSummary(changed, total, limit = 8) {
   if (changed.length > limit) lines.push(`  … 其余 ${changed.length - limit} 条省略`);
   return lines.join("\n");
 }
+
+// 原始英文表里不该有成片中文。用来分辨「当前这份到底是原始英文表，还是已经被翻译过的产物」——
+// 两处需要它：
+//   · install 备份前：文件已是中文却没有原始备份时，绝不能把它存成「原始备份」，
+//     否则 restore 会把中文原样"还原"回去；
+//   · 覆盖率基准回退时：退回磁盘上那份前先确认它确实是英文表，否则基准已经失真。
+//
+// 阈值取 10%：原始表可能零星含中文（提到中日韩的文案），但不可能过线；
+// 翻译产物则至少一半条目带中文。JSON 解析失败当作"不是我们认识的表"，返回 false。
+export function looksTranslatedTable(buf) {
+  let arr;
+  try {
+    arr = JSON.parse(Buffer.isBuffer(buf) ? buf.toString("utf8") : String(buf));
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(arr) || arr.length === 0) return false;
+  const cjk = /[一-鿿]/;
+  let hit = 0;
+  for (const s of arr) if (typeof s === "string" && cjk.test(s)) hit++;
+  return hit / arr.length > 0.1;
+}
+

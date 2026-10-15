@@ -94,3 +94,43 @@ export function recordInstalledSha256(dir, relativePath, hash) {
   fs.renameSync(tmp, manifestFile);
   return manifest;
 }
+
+// 向已有版本的备份追加一个文件（M4 的 bundle 与 NLS 表共用同一个备份目录）。
+//
+// 与 createBackup 的区别：这里允许目录已存在。代价是必须自己守住「不许把改过的
+// 文件当成原始文件存下来」——所以追加前先查当前哈希是否等于本工具写入过的哈希，
+// 命中就说明文件已经被改过，直接拒绝，让调用者先 restore。
+export function ensureBackupEntry(dir, { relativePath, sourcePath, cursorVersion, distro, commit }) {
+  const manifestFile = path.join(dir, "manifest.json");
+  if (!fs.existsSync(manifestFile)) {
+    // 新建路径同样要带上 entry —— 否则调用方拿到的 entry 是 undefined，
+    // 一旦有人真的走这条路径（备份目录还不存在时），守卫和日志都会崩。
+    const manifest = createBackup(dir, { cursorVersion, distro, commit, files: [{ relativePath, sourcePath }] });
+    return { manifest, entry: manifest.files.find((f) => f.relativePath === relativePath), added: true };
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const existing = manifest.files.find((f) => f.relativePath === relativePath);
+  if (existing) return { manifest, entry: existing, added: false };
+
+  const buf = fs.readFileSync(sourcePath);
+  const hash = sha256Hex(buf);
+  const ours = manifest.files.find((f) => f.installedSha256 && f.installedSha256 === hash);
+  if (ours) {
+    throw new Error(
+      `${relativePath} 当前内容与 ${ours.relativePath} 曾写入的版本一致，说明它已经被本工具改过。\n` +
+        "拒绝把它存成「原始备份」。请先执行 restore 还原后再重试。"
+    );
+  }
+
+  const entry = { relativePath, sha256: hash, size: buf.length, backedUpAt: new Date().toISOString() };
+  const dst = path.join(dir, "files", relativePath);
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  fs.copyFileSync(sourcePath, dst);
+
+  manifest.files.push(entry);
+  const tmp = `${manifestFile}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(manifest, null, 2), "utf8");
+  fs.renameSync(tmp, manifestFile);
+  return { manifest, entry, added: true };
+}
