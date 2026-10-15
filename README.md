@@ -1,5 +1,8 @@
 # Cursor 汉化工程
 
+[![CI](https://github.com/enmingxiong821-cloud/Corsor-/actions/workflows/ci.yml/badge.svg)](https://github.com/enmingxiong821-cloud/Corsor-/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 把 Cursor 界面完整简体中文化 —— 随时可一键还原，Cursor 升级后自动跟随。
 
 | 指标 | 实测值 |
@@ -169,6 +172,26 @@ Cursor 启动时按这个规则取界面文案：
 | [docs/04-参考资料与路径索引.md](docs/04-参考资料与路径索引.md) | 上游权威资源、本机关键路径、术语表 |
 
 > 环境备注：本机 `python` 被 Microsoft Store 别名劫持、`Python313` 被执行策略拒绝，故工具链全部采用 **Node 24** 实现。
+
+---
+
+## 贡献
+
+三条自检是合并的前提，CI 会在每次 push 与 PR 上重跑（其中前两条需要本机已装 Cursor，
+故不在 CI 里跑，由 PR 模板要求自行附上输出）：
+
+```bash
+node src/cli.mjs scan && node src/cli.mjs verify && node --test "tests/**/*.test.mjs"
+```
+
+预期依次是 **13,530 / 13,530（100.00%）**、**6/6 通过**、**全绿**。
+
+- **反馈漏译**：先查 `data/m4-skipped.json` —— 那 681 条是**刻意保留英文**的
+  （模型参数 schema、遥测指标、调试标签、专有名词，以及翻了会导致判断侧与显示侧失配的标识值）。
+- **改扫描 / 改写规则**：请一并补 `tests/m4.test.mjs` 的回归用例。那些规则的边界决定了
+  哪些英文字符串会被写进 47 MB 的 bundle，放宽错了的代价是 Cursor 白屏，不是少一块中文。
+- **加译文**：只改 `data/*.json`。不要为了凑覆盖率数字而伪造译文 ——
+  覆盖率是结果，不是目标。
 
 ---
 
