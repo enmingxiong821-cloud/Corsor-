@@ -63,6 +63,62 @@ const DIRECT_FIELD_RE = new RegExp(
   "g"
 );
 
+// 本地化壳的**对象形态**：`D({key:"glassOsEditUndo",comment:["&& denotes a mnemonic"]},"&&Undo")`。
+//
+// 上游写的是 `localize({key, comment}, msg)`，打包后壳函数退化成
+// `D(t,e){ return typeof t=="number" ? 表[t] : e }` —— **键不是数字就恒返回英文实参**，
+// 表里查不到也照样返回 `e`。所以这条路的译文只能落在那一个字面量上：数字键那批由语言包
+// 走 NLS 通道，对象键这批语言包根本碰不到（键不在 NLS 键表里）。
+//
+// 字段规则够不着它（值前面是 `D(` 而不是字段名），形状规则原来也没有这条形状 ——
+// 实测整个编辑菜单（撤销/重做/剪切/复制/粘贴/全选）加「重新加载窗口」就这么整条漏掉。
+//
+// `comment:` 是**必需项**，不能省：省了就变成「`{key:"…"}, "文案"`」这个宽形状，
+// 会把 React 的 `createElement("strong",{key:"strong"},"What this demonstrates:")` 大片算进来
+// （实测 glass 里多出 5 条开发文档面板的文案）。
+const SHIM_LOCALIZE_RE = new RegExp(
+  String.raw`\{key:"([^"]+)"\s*,\s*comment:\[[^\]]*\]\}\s*,\s*(["'])((?:\\.|(?!\2)[^\\\n\r])*)\2`,
+  "g"
+);
+
+// 三元**链**：`cond ? "A" : other ? "B" : "C"`。
+//
+// TERNARY_RE 只认「两支都是字面量」，上面这条的 else 支是另一条三元、不是字面量，
+// 于是外层那一支整条漏掉。实测 `xa?"This PC":_r?"This Mac":"This Computer"` 里
+// 只有 This PC 没翻，同一个函数渲染出来「This PC / 此 Mac / 此计算机」三不像。
+//
+// 中间那段限定成「简单标识符或成员访问」，不认带括号的调用 —— 宁可少收几个，
+// 也不要让 `f()?…` 这种形状把两边含义不同的串配到一起。只补**外层**那一支；
+// 内层两支 TERNARY_RE 已经收过，按起始偏移去重后不会重复计。
+const TERNARY_CHAIN_RE = new RegExp(
+  String.raw`\?(?!\.|\?)\s*(["'])((?:\\.|(?!\1)[^\\\n\r])*)\1\s*:\s*[A-Za-z_$][\w$.]*\s*\?\s*(["'])((?:\\.|(?!\3)[^\\\n\r])*)\3\s*:\s*(["'])((?:\\.|(?!\5)[^\\\n\r])*)\5`,
+  "g"
+);
+
+// 三元**深链**：`cond ? "A" : expr ? "B" : expr ? "C" : "D"` —— 中间那段的 else 支
+// 不是裸标识符（带 `===` 比较、`&&`、成员访问），TERNARY_CHAIN_RE 的「简单标识符」
+// 那道限定够不着，于是整条链最外层那一支漏译（实测 41 条去重：Agent 窗口的
+// Move to this machine / Login / Unstage All / 工作区失联三连都在这里）。
+//
+// 判定分两层：① `?` 后那一支自己得像文案（emit 内的 isUiText）；② 用**不消耗字符的
+// 先行断言**确认它后面真跟着一条由「含等值比较的表达式 ? "文案" : 」串成的链。
+// 断言必须写成 lookahead：按普通匹配跑，一条 matchAll 会在链上交替命中 —— 命中一处
+// 就吃掉后面一段，剩下的分支永远轮不到自己那次匹配（实测会漏掉 Login、Limit Reached，
+// 集合从 41 掉到 29）。
+// 断言里要求中间段**含等值比较符**是必要条件：`expr ? "A" : "B"` 这类普通三元的中间段
+// 已有 TERNARY_RE 收，这里不重复；带上比较符才说明读到的是状态分支链，不会把
+// `f(x) ? "a" : g(y) ? "b" : "c"` 这种含义互不相干的串配到一起。
+const SW_MID = String.raw`(?:[^,;?:()\n\r=]{1,40}(?:===|!==|==|!=)){1,2}[^,;?:()\n\r=]{0,40}`;
+const SW_CHAIN = String.raw`(?:${SW_MID}\s*\?\s*["'][^"'\n\r]{0,300}["']\s*:\s*){1,8}["'][^"'\n\r]{0,300}["']`;
+const TERNARY_DEEP_CHAIN_RE = new RegExp(
+  String.raw`\?(?!\.|\?)\s*(["'])((?:\\.|(?!\1)[^\\\n\r])*)\1\s*:\s*(?=${SW_CHAIN})`,
+  "g"
+);
+
+// 菜单助记符（`&&U` 那种）会让 isUiText 的首字母闸失守：`&&Undo`、`Cu&&t` 都不以大写开头。
+// 把 `&&` 全剥掉再验一次即可 —— 只放宽「首字母」这一条，其余判定照旧。
+const isMnemonicText = (s) => isUiText(s) || isUiText(s.replace(/&&/g, ""));
+
 /**
  * 收集「被当作标识用过」的文案值。
  *
@@ -233,8 +289,8 @@ export function collectShapeHits(source, { identity, cmpAny } = {}) {
   const out = [];
   const cmp = identity?.any ?? new Set();
   const anyCmp = cmpAny ?? new Set();
-  const emit = (start, quote, raw, field) => {
-    if (!isUiText(raw)) return;
+  const emit = (start, quote, raw, field, accept = isUiText) => {
+    if (!accept(raw)) return;
     // 兜底/三元没有字段名可依，只能按值挡，而且要比字段那层挡得更宽：
     // 只要该值在**任何地方**参与过等值比较或 case 分支，就按标识处理。
     // 实测这道闸拦下 Enter / Delete / True / False / Auto / Off / Disabled 这一类
@@ -262,6 +318,28 @@ export function collectShapeHits(source, { identity, cmpAny } = {}) {
     const first = litStart(m, m[1], m[2]);
     emit(first, m[1], m[2], null);
     emit(litStartFrom(m, m[3], m[4], litEnd(first, m[1], m[2]) - m.index), m[3], m[4], null);
+  });
+
+  // ⑥ 三元链的外层分支（形状与理由见 TERNARY_CHAIN_RE 上方的注释）。
+  //    三分支都要像文案才认 —— 与 TERNARY_RE 同一条尺度：只翻外层会让这条三元
+  //    变成一半中文一半英文，比整条不翻更难看。中间那个表达式不求值，只是位置上的一环。
+  each(TERNARY_CHAIN_RE, (m) => {
+    if (!isUiText(m[2]) || !isUiText(m[4]) || !isUiText(m[6])) return;
+    emit(litStart(m, m[1], m[2]), m[1], m[2], null);
+  });
+
+  // ⑦ 本地化壳的对象形态（形状与理由见 SHIM_LOCALIZE_RE 上方的注释）。
+  //    没有字段名可依，故 field 传 null，走「按值挡、比字段那层更宽」的标识守卫。
+  //    助记符串过不了 isUiText 的首字母闸，用 isMnemonicText 验（只放宽这一条）。
+  each(SHIM_LOCALIZE_RE, (m) => {
+    const start = m.index + m[0].length - (m[2] + m[3] + m[2]).length;
+    emit(start, m[2], m[3], null, isMnemonicText);
+  });
+
+  // ⑧ 深链的每个分支（形状与理由见 TERNARY_DEEP_CHAIN_RE 上方的注释）。
+  //    断言不消耗字符，所以链上每一环都会各自命中一次，不必像 ⑥ 那样只补最外层一支。
+  each(TERNARY_DEEP_CHAIN_RE, (m) => {
+    emit(litStart(m, m[1], m[2]), m[1], m[2], null);
   });
 
   // 映射表要先框出整块，再逐条取值 —— 正则的重复组只保留最后一次捕获，分两步才拿得到每一条。

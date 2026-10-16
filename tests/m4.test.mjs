@@ -291,6 +291,116 @@ test("scanBundle：模板串里的单引号不会让整片字段规则失明", (
   );
 });
 
+test("scanBundle：本地化壳的对象形态也能命中，且不会把 React 的 key prop 算进来", () => {
+  // 上游是 localize({key, comment}, msg)。打包后的壳函数退化成
+  // `D(t,e){ return typeof t=="number" ? 表[t] : e }` —— 键不是数字就恒返回英文实参，
+  // 语言包也碰不到（它的键不在 NLS 键表里）。实测 Agent 窗口的编辑菜单
+  // （撤销/重做/剪切/复制/粘贴/全选）就是这么整条漏掉的。
+  const menu = `Ir({menu:{title:D({key:"glassOsEditUndo",comment:["&& denotes a mnemonic"]},"&&Undo")}})`;
+  const hits = scanBundle(menu);
+  assert.deepEqual(hits.map((h) => h.raw), ["&&Undo"], "对象键的英文实参必须命中");
+  assert.equal(menu.slice(hits[0].start, hits[0].end), `"&&Undo"`, "命中区间要精确套住字面量，不碰 key/comment");
+  assert.equal(hits[0].field, null, "没有字段名可依，走按值的标识守卫");
+
+  // 助记符让首字母闸失守，只能剥掉 && 再验 —— 但只放宽这一条：
+  // 剥掉之后仍要是像文案的串，Cu&&t 放行、乱码不放行。
+  assert.deepEqual(scanBundle(`D({key:"a",comment:["x"]},"Cu&&t")`).map((h) => h.raw), ["Cu&&t"]);
+  assert.deepEqual(scanBundle(`D({key:"a",comment:["x"]},"x&&8z")`).map((h) => h.raw), []);
+
+  // comment 是必需项：省了就退化成「{key:"…"}, "文案"」这个宽形状，
+  // 会把 React 的 createElement(tag,{key:"strong"},"文案") 大片算进来。
+  assert.deepEqual(scanBundle(`YG.createElement("strong",{key:"strong"},"What this demonstrates:")`).map((h) => h.raw), []);
+
+  // 同样要过标识守卫与 nlsExclude，不能因为「另一条路」就放行
+  assert.deepEqual(scanBundle(`D({key:"a",comment:["x"]},"&&Undo"),k=function(e){return e==="&&Undo"}`).map((h) => h.raw), []);
+  assert.deepEqual(scanBundle(`D({key:"a",comment:["x"]},"&&Undo")`, { nlsExclude: new Set(["&&Undo"]) }).map((h) => h.raw), []);
+});
+
+test("scanBundle：三元链的外层分支不再漏，且只收外层那一支", () => {
+  // TERNARY_RE 只认「两支都是字面量」。外层三元 `xa?"This PC":_r?...` 的 else 支
+  // 是另一条三元而不是字面量，于是这一支整条漏掉。实测同一个函数渲染出来是
+  // 「This PC / 此 Mac / 此计算机」三不像。
+  const src = `function qX(){return xa?"This PC":_r?"This Mac":"This Computer"}`;
+  const hits = scanBundle(src);
+  assert.deepEqual(hits.map((h) => h.raw).sort(), ["This Computer", "This Mac", "This PC"]);
+  for (const h of hits) {
+    assert.equal(src.slice(h.start, h.end), `"${h.raw}"`, "三段区间都要精确");
+  }
+  // 内层两支本来就由 TERNARY_RE 收，去重后不能重复计
+  assert.equal(new Set(hits.map((h) => h.start)).size, hits.length);
+
+  // 三分支都要像文案才认 —— 只翻外层会得到一半中文一半英文
+  assert.deepEqual(scanBundle(`return a?"Ready":b?"dark":"light"`).map((h) => h.raw), []);
+
+  // 中间那段不认带括号的调用：宁可少收，也不要把两边含义不同的串配到一起。
+  // 内层那对仍由 TERNARY_RE 照常收 —— 这里要证的是外层 Ready 没被顺带收进来。
+  assert.deepEqual(scanBundle(`return a?"Ready":f()?"Started":"Stopped"`).map((h) => h.raw), ["Started", "Stopped"]);
+
+  // 外层那支参与过等值比较的不翻
+  assert.deepEqual(
+    scanBundle(`w=function(e){return e==="This PC"};return xa?"This PC":_r?"This Mac":"This Computer"`)
+      .map((h) => h.raw)
+      .sort(),
+    ["This Computer", "This Mac"]
+  );
+});
+
+test("scanBundle：三元深链的外层分支不再漏，且不吃掉链上其余分支", () => {
+  // TERNARY_CHAIN_RE 的中间段限定「裸标识符」，带等值比较的链够不着，于是整条链
+  // 最外层那一支漏译 —— Agent 窗口的 Move to this machine / Login / Unstage All
+  // 一族就是这么丢的（实测三个 bundle 净增 80 条去重）。
+  const src = `function kK1(t){return t.value!=="undecided"?"Move to this machine":t.probe==="unreachable"&&t.probeReason==="hosted_dial_failures"?"Keep it on this machine":"Run it on this machine"}`;
+  const hits = scanBundle(src);
+  assert.deepEqual(
+    hits.map((h) => h.raw).sort(),
+    ["Keep it on this machine", "Move to this machine", "Run it on this machine"]
+  );
+  for (const h of hits) assert.equal(src.slice(h.start, h.end), `"${h.raw}"`, "三段区间都要精确");
+  assert.equal(new Set(hits.map((h) => h.start)).size, hits.length, "同一处不得重复计");
+
+  // 先行断言必须不消耗字符：链上每一环都要各自命中一次。写成普通匹配会在链上交替
+  // 命中，命中一处就吃掉后面一段，后面的分支永远轮不到自己那次匹配（实测 41 → 29，
+  // 掉的是 Login 与 Limit Reached）。
+  const deep = `return a==="x"?"Alpha":b==="y"?"Bravo":c==="z"?"Charlie":"Delta"`;
+  assert.deepEqual(scanBundle(deep).map((h) => h.raw).sort(), [
+    "Alpha",
+    "Bravo",
+    "Charlie",
+    "Delta",
+  ]);
+
+  // 必要条件：链里得有等值比较符。不带比较符的普通三元由 TERNARY_RE 管；而中间那段
+  // 带调用的形状两边含义可能毫不相干，宁可少收也不要把它们配到一起。
+  assert.deepEqual(
+    scanBundle(`return check(x)?"Ready":probe(y)==="unreachable"?"Not Ready":"Fully Ready"`).map(
+      (h) => h.raw
+    ),
+    ["Not Ready", "Fully Ready"]
+  );
+
+  // 参与过等值比较的那一支不翻（与其余形状规则同一条标识守卫）
+  assert.deepEqual(
+    scanBundle(
+      `w=function(e){return e==="Login"};return t.value!=="undecided"?"Login":t.probe==="unreachable"?"Keep it here":"Run it here"`
+    )
+      .map((h) => h.raw)
+      .sort(),
+    ["Keep it here", "Run it here"]
+  );
+
+  // 放行尺度按「? 后那一支」独立判定，不做 ⑥ 那种全链同尺度：链上后续环节里的
+  // "unreachable" / "cloud" / "ENETUNREACH" 是**比较操作数**（标识），不是渲染分支，
+  // 全链同尺度会把这些枚举一起要求「像文案」，实测要白丢 31 条正解。
+  assert.deepEqual(
+    scanBundle(
+      `return k==="cloud"?"Cloud agent view is unavailable":k==="local"?"Project view is unavailable":"Other view is unavailable"`
+    )
+      .map((h) => h.raw)
+      .sort(),
+    ["Cloud agent view is unavailable", "Other view is unavailable", "Project view is unavailable"]
+  );
+});
+
 test("targets：只有内核 bundle 标了 checksummed / nlsExclude", () => {
   const core = M4_TARGETS.filter((t) => t.checksummed);
   assert.deepEqual(
