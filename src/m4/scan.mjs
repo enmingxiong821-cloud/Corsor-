@@ -115,6 +115,25 @@ const TERNARY_DEEP_CHAIN_RE = new RegExp(
   "g"
 );
 
+// ⑨ 裸常量白名单：`var Eee="No Repository",fKr="Start from scratch";` —— 模块级常量赋值，
+//    没有字段名可依、也不是三元或兜底，前面八条规则一条都够不着。
+//
+//    为什么不写一条通用的「裸常量 / 裸 return」规则：实测会把 SVG 的 `d` 路径、zod 错误表、
+//    Java toString 格式整片收进来（见 docs/05 §7），代价不对称。所以改成逐个值开口子，
+//    名单挂在**目标**上（targets.mjs 的 bareConstAllow），且每个值都要先确认是纯渲染标签。
+//
+//    匹配只锚「=值」这半边，不锚标识符：minified 名在同一个 bundle 里会被不同模块复用，
+//    锚标识符等于给自己埋雷；值在目标内唯一，够精确了。
+//
+//    ★ 名单必须按目标限定。同一个英文串在不同 bundle 里可能身份不同 ——
+//      `Start from scratch` 在 anysphere 是纯标签，在 glass（`Sye`）与内核（`_Yb`）里
+//      却是「标签兼哨兵」。全局值白名单会把不该翻的一起翻掉。
+const BARE_CONST_HEAD = String.raw`(?<![A-Za-z0-9_$])[A-Za-z_$][\w$]*\s*=\s*`;
+function bareConstRe(value) {
+  const esc = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`${BARE_CONST_HEAD}(["'])(${esc})\\1`, "g");
+}
+
 // 菜单助记符（`&&U` 那种）会让 isUiText 的首字母闸失守：`&&Undo`、`Cu&&t` 都不以大写开头。
 // 把 `&&` 全剥掉再验一次即可 —— 只放宽「首字母」这一条，其余判定照旧。
 const isMnemonicText = (s) => isUiText(s) || isUiText(s.replace(/&&/g, ""));
@@ -285,10 +304,11 @@ function litEnd(start, quote, content) {
   return start + quote.length + content.length + quote.length;
 }
 
-export function collectShapeHits(source, { identity, cmpAny } = {}) {
+export function collectShapeHits(source, { identity, cmpAny, bareConstAllow } = {}) {
   const out = [];
   const cmp = identity?.any ?? new Set();
   const anyCmp = cmpAny ?? new Set();
+  const bareConstRes = (bareConstAllow ?? []).map((v) => bareConstRe(v));
   const emit = (start, quote, raw, field, accept = isUiText) => {
     if (!accept(raw)) return;
     // 兜底/三元没有字段名可依，只能按值挡，而且要比字段那层挡得更宽：
@@ -342,6 +362,15 @@ export function collectShapeHits(source, { identity, cmpAny } = {}) {
     emit(litStart(m, m[1], m[2]), m[1], m[2], null);
   });
 
+  // ⑨ 裸常量白名单，形状与理由见 BARE_CONST_RE 那一段。field 传 null —— 没有字段名可依，
+  //    只能走「按值挡、比字段那层更宽」的标识守卫；这道守卫同时也是最后一道保险：
+  //    哪天真有代码拿它做等值比较，cmpAny 会自动把这条拦下。
+  for (const re of bareConstRes) {
+    each(re, (m) => {
+      emit(m.index + m[0].length - (m[1] + m[2] + m[1]).length, m[1], m[2], null);
+    });
+  }
+
   // 映射表要先框出整块，再逐条取值 —— 正则的重复组只保留最后一次捕获，分两步才拿得到每一条。
   each(NAV_MAP_RE, (map) => {
     const span = map[0];
@@ -387,13 +416,16 @@ const CASE_LEFT_RE = /\bcase\s*$/; // case "X": —— 前面可能是 { ，不�
 
 /**
  * @param {string} source bundle 源码
- * @param {{nlsExclude?: Set<string>}} [opts]
+ * @param {{nlsExclude?: Set<string>, bareConstAllow?: string[]}} [opts]
  *   nlsExclude：NLS 英文表里的串集合。只对**被校验的内核 bundle** 传 ——
  *   那层的字面量是 localize() 的默认值，表内有键就是死文本，翻它不起作用。
  *   详见 targets.mjs 头部的规则对照。
+ *   bareConstAllow：规则 ⑨ 的裸常量值白名单（`var X="…"` 形态，没有字段可依），
+ *   只登记逐个确认过是纯渲染标签的值，且**按目标下发** —— 同一个串换个 bundle
+ *   可能兼作哨兵。见 targets.mjs 的 anysphere 目标。
  * @returns {Array<{start,end,quote,raw,field,context}>} 按 start 升序
  */
-export function scanBundle(source, { nlsExclude } = {}) {
+export function scanBundle(source, { nlsExclude, bareConstAllow } = {}) {
   const constIds = collectUiConstants(source);
   const identity = collectIdentityValues(source, constIds);
   const hits = [];
@@ -464,7 +496,7 @@ export function scanBundle(source, { nlsExclude } = {}) {
     take(start, start + quote.length + raw.length + quote.length, quote, raw, field);
   }
 
-  for (const h of collectShapeHits(source, { identity, cmpAny })) {
+  for (const h of collectShapeHits(source, { identity, cmpAny, bareConstAllow })) {
     if (nlsExclude && nlsExclude.has(h.raw)) continue;
     take(h.start, h.end, h.quote, h.raw, h.field);
   }

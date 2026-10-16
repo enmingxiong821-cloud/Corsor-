@@ -135,6 +135,11 @@ export const UI_FIELDS = new Set([
   "breadcrumbLabel",
   "rootLabel",
   "projectAgentsSectionLabel",
+  // 2026-10-16 补入：计费/用量页那两个非 *Label 命名的展示字段。
+  // 增量实测各 4 条（glass 与内核是同一批值）：trayLabel 是三条限额提示，
+  // disabledPrimaryActionHintText 是按钮禁用时的悬停说明 —— 都只作展示。
+  "trayLabel",
+  "disabledPrimaryActionHintText",
   "dontAskAgainLabel",
   "allLabel",
 ]);

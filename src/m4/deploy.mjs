@@ -195,7 +195,9 @@ export function installBundles({
       summary.push({ rel, label, status: "healed" });
     }
 
-    const opts = target.nlsExclude ? { nlsExclude } : undefined;
+    const opts = {};
+    if (target.nlsExclude) opts.nlsExclude = nlsExclude;
+    if (target.bareConstAllow) opts.bareConstAllow = target.bareConstAllow;
     const source = readPatchSource({ dir, rel, abs, log });
     if (source === null) {
       summary.push({ rel, label, status: "foreign" });

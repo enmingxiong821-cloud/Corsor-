@@ -113,13 +113,13 @@ Cursor 启动时按这个规则取界面文案：
 
 **标识值守卫**：代码里存在 `e.label==="Task"`、`o.label==="Production"?"prod":"dev"` 这类「拿显示文字反查标识」的写法。同一个值在渲染侧被翻译、在判断侧保持英文，就会失配（实测后果：`backgroundComposerEnv` 写不进存储、Cancel 快选返回错值）。所以凡参与过等值比较的字段值一律不翻，代价是 10 条文案让位给正确性。
 
-译文表 5,431 条（`data/m4.json`），另有 728 条经判断**保留英文**（工具参数 schema、遥测指标、调试标签、模型名与专有名词），清单见 `data/m4-skipped.json`。下表按目标拆分（同一英文串在不同文件里各计一次）：
+译文表 5,463 条（`data/m4.json`），另有 727 条经判断**保留英文**（工具参数 schema、遥测指标、调试标签、模型名与专有名词），清单见 `data/m4-skipped.json`。下表按目标拆分（同一英文串在不同文件里各计一次）：
 
 | 目标 | 命中 | 候选（去重） | 已译 | 保留英文 | 未处理 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| glass | 8,807 处 | 5,681 | 4,980 | 701 | **0** |
-| anysphere | 863 处 | 649 | 577 | 72 | **0** |
-| workbench.desktop.main | 3,943 处 | 3,030 | 2,648 | 382 | **0** |
+| glass | 8,840 处 | 5,712 | 5,011 | 701 | **0** |
+| anysphere | 865 处 | 650 | 578 | 72 | **0** |
+| workbench.desktop.main | 3,969 处 | 3,056 | 2,674 | 382 | **0** |
 
 **未处理已清零**：早先刻意留英文的那 59 条内核 JSON-schema `description`（如 `Name of the debug visualizer`，主要喂给模型而非用户）现已统一收进 `data/m4-skipped.json` 逐条注明原因，不再区分「未处理」与「保留英文」两种状态。
 
@@ -132,6 +132,10 @@ Cursor 启动时按这个规则取界面文案：
 > 2026-10-16 修掉一处**会让整片区域失明**的扫描缺陷：切字符串用的正则只认引号配对、不是 JS 感知的。模板字符串里出现一个 apostrophe 时，它会跟后面某个单引号串的**开引号**配上对，把中间整段（含真实字面量）吞成一个 token —— 那些字面量压根不会被访问到，字段规则就此整片失效。实测 glass bundle 第一处翻转在偏移 11385（`` `'{snip} ${n}` ``），此后大段区间漏译，Agent 窗口菜单标题 `title:"New Browser"` 就是这么丢的（全量重扫共补出 356 条候选）。修法是另加一条**不依赖配对**的等价正则直接跑原文，与原来那轮按起始偏移去重，只净增、不覆盖，白名单与标识守卫两道闸照旧。
 >
 > 同日再补三类**三元链**写法，合计净增 80 条去重候选。⑥ 链的外层分支（`xa?"This PC":_r?"This Mac":"This Computer"`，else 支是另一条三元，而「两支都是字面量」的旧规则认不出来）；⑦ **本地化壳的对象形态**（`D({key:"glassOsEditUndo",comment:["&& denotes a mnemonic"]},"&&Undo")`）—— 编辑菜单下拉里那一排 Undo / Redo / Cut / Copy / Paste / Select All 就是从这里丢的：这层壳对非数字键直接返回英文实参，语言包永远够不着，只能改字面量；⑧ 深链（中间段带等值比较的链，`Move to this machine` / `Login` / `Unstage All` 一族）。⑧ 的判定用**不消耗字符的先行断言** —— 写成普通匹配会在链上交替命中，后面的分支永远轮不到自己那次匹配（实测 41 → 29，掉的是 `Login` 与 `Limit Reached`）；放行尺度按分支独立判定，不做 ⑥ 那种全链同尺度，因为链上后续环节里的 `"unreachable"` / `"cloud"` / `"ENETUNREACH"` 是**比较操作数**（标识）而不是渲染分支。`Insert` 由标识值守卫自动挡下，`Windows` 与 `Merge Request` 按专有名词、术语表一致性保留英文。
+>
+> 同日又补第九类：**裸常量值白名单**（`var Eee="No Repository",fKr="Start from scratch";`）。模块级常量赋值既没有字段名可依、也不是三元或兜底，前八条规则一条都够不着；而通用的「裸常量」规则实测会把 SVG 的 `d` 路径、zod 错误表、Java `toString` 格式整片收进来，已否决。所以改成**逐个值开口子，并且名单挂在目标上**（`M4_TARGETS[].bareConstAllow`），当前只有 anysphere 那两个仓库选择器的默认标签。名单必须按目标限定而不能做成全局值白名单，因为同一个英文串换个文件身份就变了：`Start from scratch` 在 glass（`Sye`）与内核（`_Yb`）里是「标签兼哨兵」，`t.displayName.trim()===Sye` 拿它比对环境数据里的显示名、`name:_Yb` 写进工作区标识，翻掉会让 pending-new-project 环境被误判成普通工作区 —— 那两处因此保持英文，只在 anysphere 里译为「从头开始」。匹配只锚「`=值`」不锚标识符：minified 名在同一个 bundle 里会被不同模块复用，锚标识符等于给自己埋雷。
+>
+> 同日把第九类的名单从 anysphere 扩到三个目标：**计费 / 用量页**那族文案（`planUsage`、`plan-usage-included-section`、`plan-usage-on-demand-section`、`on-demand-limit-modal`、`get-more-usage-modal`、`buy-credits-modal`、`glass-usage-lock` 等模块）被抽成模块级常量，却只出现在 `switch` 的 `return`、默认 props 和三元分支上，没有 `字段:常量` 这种位置，前九条规则一条都够不着 —— 套餐与用量整页因此停在英文。另有两个非 `*Label` 命名的展示字段 `trayLabel`、`disabledPrimaryActionHintText` 一并收录（各带来 4 条限额提示与按钮禁用说明）。逐条核过使用站点后**刻意留了三条英文**：`Share exceeds content limits`（子串判定）、`No response was received within the time limit`（既是 `startsWith` 哨兵又被插进提示词模板）、`The AI provider is rate-limiting requests or is temporarily at capacity.`（只出现在错误回放用的脚本化演示数据里，不是真实文案）。同族的 `Premium`、`Get more usage with Premium`、`Upgrade to Premium` 在三个 bundle 里出现 0 次 —— 由服务端下发，本地改不到。
 
 
 安全措施：改写前先 `node --check` 校验整份语法，语法不过就中止且不写；写入用「临时文件 + 原子改名」，47 MB 文件写到一半断电也不会留下半截文件；被校验文件（内核 bundle 与字体 CSS）写入后立刻把 6 个文件全部重算一遍，任何一个对不上就**自动回滚**该文件与 `product.json`，退回写入前状态。万一恰在「文件已写、校验值未更新」的间隙被强杀，下次 `sync` 会认出那是自己的半成品并**补算**校验值 —— 而不是卡在「无需改写」分支里再也修不回来。备份与 NLS 层共用同一套 manifest，`restore` 会一并还原。
@@ -190,7 +194,7 @@ node src/cli.mjs scan && node src/cli.mjs verify && node --test "tests/**/*.test
 
 预期依次是 **13,530 / 13,530（100.00%）**、**6/6 通过**、**全绿**。
 
-- **反馈漏译**：先查 `data/m4-skipped.json` —— 那 728 条是**刻意保留英文**的
+- **反馈漏译**：先查 `data/m4-skipped.json` —— 那 727 条是**刻意保留英文**的
   （模型参数 schema、遥测指标、调试标签、专有名词，以及翻了会导致判断侧与显示侧失配的标识值）。
 - **改扫描 / 改写规则**：请一并补 `tests/m4.test.mjs` 的回归用例。那些规则的边界决定了
   哪些英文字符串会被写进 47 MB 的 bundle，放宽错了的代价是 Cursor 白屏，不是少一块中文。

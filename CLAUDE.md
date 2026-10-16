@@ -8,7 +8,7 @@ Cursor 界面简体中文汉化工程。**开工前请读完本文件。**
 且不破坏 Cursor、不影响其正常使用、每一步都可回滚。
 
 **已交付**：`install.cmd` 一键安装、`sync` + 计划任务自动跟随 Cursor 升级（NLS + AI 面板两条通道）。
-**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 5,431 条、保留英文 728 条。
+**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 5,463 条、保留英文 727 条。
 **不是**运行时注入，而是改写三个 bundle 里的字符串常量，外加一条 CSS 字体通道：
 
 | 目标 | 校验 | 处理 |
@@ -33,15 +33,15 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 只定义 `--vscode-font-family` 一个就够 —— `--cursor-font-family-sans` 的定义链以它兜底。
 幂等靠 CSS 里的标记行 `/* cursor-zh-fontfix */`，Cursor 升级换掉该文件后标记消失、自动重加。
 
-**候选覆盖率**（2026-10-16 补入引号配对缺陷修复后重算，未处理仍为 0）：
+**候选覆盖率**（2026-10-16 补入计费/用量白名单后重算，未处理仍为 0）：
 
 | 目标 | 命中 | 候选（去重） | 已译 | 保留英文 | 未处理 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| glass | 8,807 处 | 5,681 | 4,980 | 701 | **0** |
-| anysphere | 863 处 | 649 | 577 | 72 | **0** |
-| 内核 desktop.main | 3,943 处 | 3,030 | 2,648 | 382 | **0** |
+| glass | 8,840 处 | 5,712 | 5,011 | 701 | **0** |
+| anysphere | 865 处 | 650 | 578 | 72 | **0** |
+| 内核 desktop.main | 3,969 处 | 3,056 | 2,674 | 382 | **0** |
 
-`data/m4.json` 5,431 条；`data/m4-skipped.json` 728 条。
+`data/m4.json` 5,463 条；`data/m4-skipped.json` 727 条。
 早先那 59 条「喂给模型而非用户」的内核 JSON-schema `description` 现已收进 `data/m4-skipped.json`
 逐条注明原因，与其余保留项合并统计 —— **不再另设「未处理」这一状态**。
 `out/vs/workbench/workbench.xai-commerce-prepaid.js` 同样免校验，但实测命中 0 条，无需处理。
@@ -88,7 +88,7 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 - 那 59 条内核 JSON-schema `description` 已按「喂给模型而非用户」的判断保留英文，
   收进 `data/m4-skipped.json` 并逐条注明原因 —— **主 IDE 已无「未处理」候选**。
 - ★ **M4 取值形态**（2026-10-15 补齐，实现在 `src/m4/scan.mjs`）。除最基础的
-  `字段:"文案"` 外，还有八类必须单独识别，否则整片漏译：
+  `字段:"文案"` 外，还有九类必须单独识别，否则整片漏译：
   ① `title:{value:"…",original:"…"}` 成对结构（`value` 本身在 `NEVER_FIELDS` 里，
      靠 `TITLE_OBJ_RE` 单独兜住）；② 设置页那份 ≥5 成员的 `id:"文案"` **左导航映射表**
      （键是小写 id，永远匹配不上 `UI_FIELDS`，靠 `NAV_MAP_RE`/`NAV_ENTRY_RE` 识别）；
@@ -118,6 +118,26 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
      `"cloud"` / `"ENETUNREACH"` 是**比较操作数**（标识）不是渲染分支，全链同尺度实测要白丢 31 条正解。
      ⑥⑦⑧ 合计净增 80 条去重候选；`Insert` 被标识值守卫自动挡下，`Windows` / `Merge Request`
      按专有名词与术语表一致性保留英文（见 `data/m4-skipped.json`）。
+  ⑨ **裸常量值白名单**（`bareConstRe`，2026-10-16 加）：`var Eee="No Repository",fKr="Start from scratch";`
+     —— 模块级常量赋值，没有字段名可依、也不是三元或兜底，前八条规则一条都够不着。
+     通用的「裸常量 / 裸 return」规则**实测过并否决**：会把 SVG 的 `d` 路径、zod 错误表、
+     Java `toString` 格式整片收进来。改成逐个值开口子，名单挂在**目标**上
+     （`M4_TARGETS[].bareConstAllow`），现在有三份：
+     anysphere 的两条仓库选择器默认 props（`newRepositoryLabel` / `clearSelectionLabel`）、
+     以及 glass 与内核各自的**计费/用量页文案族**（`planUsage`、`plan-usage-*`、
+     `on-demand-limit-modal`、`get-more-usage-modal`、`buy-credits-modal` 等模块把文案抽成
+     模块级常量，只用在 `switch` 的 `return`、默认 props、三元分支上 —— 没有 `字段:常量`
+     这种位置，`collectUiConstants` 的第一道闸够不着，整族漏译）。
+     两份计费名单**刻意不含**三条「标签兼判定」的串：`Share exceeds content limits`
+     （`t.rawMessage.includes(JBl)` 子串判定）、`No response was received within the time limit`
+     （既是 `startsWith(hIo)` 的哨兵又被插进提示词模板）、
+     `The AI provider is rate-limiting requests or is temporarily at capacity.`
+     （全 bundle 只在 `cloudAgentStreamErrorFixtures.js` 的错误回放数据里，不是真实文案）。
+     匹配只锚「`=值`」不锚标识符 —— minified 名在同一个 bundle 里会被不同模块复用，锚标识符等于埋雷。
+     ★ **名单必须按目标限定，不能做成全局值白名单**：`Start from scratch` 在 glass（`Sye`）
+     与内核（`_Yb`）里是「标签兼哨兵」，`t.displayName.trim()===Sye` 拿它比对环境数据里的显示名、
+     `name:_Yb` 写进工作区标识，翻掉会让 pending-new-project 环境被误判。同一个串一个能翻、
+     两个不能翻 —— 这就是名单挂目标而非挂值的原因（照旧走 `field=null` 那层标识值守卫兜底）。
 - ★ **`*Label` 白名单是逐个筛出来的，不是按后缀批量收**（`src/m4/fields.mjs`）。
   2026-10-15 从两个免校验 bundle 里扫出 362 个属性位置出现过的 `*Label` 字段，
   逐个加进去量增量，**只有 58 个能产生新串**，只把这 58 个并入 `UI_FIELDS`。
@@ -139,7 +159,7 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
      （`` `'{snip} ${n}` ``），此后大段区间漏译，Agent 窗口菜单标题 `title:"New Browser"`
      就是这么丢的（956 条候选）。补法是 `DIRECT_FIELD_RE` —— 一条不依赖配对的等价正则
      直接跑原文，与 `LIT` 那轮按起始偏移去重（`take` 里的 `seen`），**只净增不覆盖**。
-     八条形状规则本来就跑原文，不受配对影响，这条把字段规则拉齐。
+     九条形状规则本来就跑原文，不受配对影响，这条把字段规则拉齐。
 - 覆盖率 **100.00%**（13,530 / 13,530）= 语言包 11,559 + 路径归一化 **328** + 补译词典 **1,643**
   —— 这是 1,971 条缺口的分解：① 归一化映射上限 332，其中 4 条占位符不匹配被闸拒
   （`stats.renamedRejected`），净救回 328、投影 87.86%；② 词典实际命中 1,643 条

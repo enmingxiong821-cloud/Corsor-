@@ -721,7 +721,6 @@
   "Producer-side run id. Defaults to this chat's composer id.": "工具入参 JSON-schema 的 description，喂给模型而非用户（与内核那 59 条同类）",
   "Required for WORKFLOW_SUGGESTION. Record ENABLE_PR_AUTO_MERGE for the owner to apply; never run merges yourself.": "工具入参 JSON-schema 的 description，喂给模型而非用户（与内核那 59 条同类）",
   "Commit, push, and open a pull request for": "给 agent 的提示词模板前缀（`${…} the changes inside submodule \"…\".`），只译得到半截中英混排，且属模型可见文本而非界面文案",
-  "Start from scratch": "兼作等值哨兵与持久化标识：玻璃层 `t.displayName.trim()===Sye`、内核 `name:_Yb` 写入工作区标识；翻掉会让判断失配（同 m4.json 里那 10 条让位给正确性的文案）",
   "Windows": "专有名词，与已登记的 Macintosh / Linux 一致保留原文",
   "The user completed the requested secret entry.": "喂给模型的环境搭建状态块（Bek 被 Uek 消费后拼进 prompt），不是界面文案",
   "The user approved the requested network access.": "喂给模型的环境搭建状态块（Bek 被 Uek 消费后拼进 prompt），不是界面文案",

@@ -401,6 +401,39 @@ test("scanBundle：三元深链的外层分支不再漏，且不吃掉链上其�
   );
 });
 
+test("scanBundle：裸常量只按目标白名单收，白名单外一条不碰", () => {
+  const allow = ["No Repository", "Start from scratch"];
+  const src = `var Eee="No Repository",fKr="Start from scratch";`;
+
+  // 不下发名单：字段规则够不着裸常量赋值，一条都不该收
+  assert.deepEqual(scanBundle(src).map((h) => h.raw), []);
+
+  const hits = scanBundle(src, { bareConstAllow: allow });
+  assert.deepEqual(hits.map((h) => [h.field, h.raw]), [
+    [null, "No Repository"],
+    [null, "Start from scratch"],
+  ]);
+  // 区间只套住值本身 —— 含标识符或等号会改写坏语法
+  assert.equal(src.slice(hits[1].start, hits[1].end), '"Start from scratch"');
+
+  // 名单不等于全局放行：glass（Sye）与内核（_Yb）那两个同值哨兵靠「不下发名单」保住
+  assert.deepEqual(scanBundle(`var Sye="Start from scratch";`).map((h) => h.raw), []);
+
+  // 值若在别处参与过等值比较，⑨ 同样被标识值守卫拦下
+  assert.deepEqual(
+    scanBundle(`var fKr="Start from scratch",q=function(){return x==="Start from scratch"};`, {
+      bareConstAllow: allow,
+    }).map((h) => h.raw),
+    []
+  );
+
+  // 名单外的裸常量照旧不翻
+  assert.deepEqual(
+    scanBundle(`var z="Some Label",y="Another Label";`, { bareConstAllow: allow }).map((h) => h.raw),
+    []
+  );
+});
+
 test("targets：只有内核 bundle 标了 checksummed / nlsExclude", () => {
   const core = M4_TARGETS.filter((t) => t.checksummed);
   assert.deepEqual(
@@ -413,6 +446,43 @@ test("targets：只有内核 bundle 标了 checksummed / nlsExclude", () => {
     assert.equal(!!t.nlsExclude, !!t.checksummed, `${t.rel} 的 nlsExclude 应与 checksummed 一致`);
   }
   assert.equal(checksumKey(core[0].rel), "vs/workbench/workbench.desktop.main.js");
+
+  // 裸常量白名单（规则 ⑨）按内容分两类，不能混：
+  //   · anysphere 的 `No Repository` / `Start from scratch` 在 glass 与内核里兼作哨兵
+  //     （`t.displayName.trim()===Sye`、`name:_Yb`），**只准挂在 anysphere 上**；
+  //   · glass / 内核的计费用量文案是纯展示标签，两边各挂各的。
+  // 混挂的后果是把哨兵翻掉、workspace 标识被写坏，所以这里逐目标锁名单。
+  const withBare = M4_TARGETS.filter((t) => t.bareConstAllow);
+  assert.deepEqual(
+    withBare.map((t) => t.rel),
+    [
+      "out/vs/workbench/workbench.glass.main.js",
+      "out/vs/workbench/workbench.anysphere-ui-automations.js",
+      "out/vs/workbench/workbench.desktop.main.js",
+    ],
+    "三个目标各自的白名单必须显式列出"
+  );
+  const SENTINELS = ["No Repository", "Start from scratch"];
+  for (const t of withBare) {
+    const bare = t.bareConstAllow;
+    assert.ok(bare.length > 0, `${t.rel} 的白名单不得为空`);
+    assert.equal(new Set(bare).size, bare.length, `${t.rel} 的白名单不得有重复项`);
+    if (t.rel.includes("anysphere")) {
+      assert.deepEqual(bare, SENTINELS);
+    } else {
+      for (const s of SENTINELS) {
+        assert.ok(!bare.includes(s), `${t.rel} 不得收录兼作哨兵的 ${JSON.stringify(s)}`);
+      }
+      // 这三个串是「标签兼判定」的反例，已实测否决，翻掉会坏功能
+      for (const bad of [
+        "Share exceeds content limits",
+        "No response was received within the time limit",
+        "The AI provider is rate-limiting requests or is temporarily at capacity.",
+      ]) {
+        assert.ok(!bare.includes(bad), `${t.rel} 不得收录 ${JSON.stringify(bad)}`);
+      }
+    }
+  }
 });
 
 test("scanBundle：nlsExclude 只挡 NLS 表内的串，其余照常命中", () => {
