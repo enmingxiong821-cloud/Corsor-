@@ -12,6 +12,9 @@
 | 中文覆盖 | **13,530（100.00%）** |
 | 被校验文件 | 6 个 —— 4 个保持原样，2 个改写后同步重算校验值（`workbench.desktop.main.js` 与字体通道的 `workbench.desktop.main.css`） |
 
+各版本改了什么、验证了什么见 [CHANGELOG.md](CHANGELOG.md)；
+实时状态、已知残留与阻塞原因见 [docs/06-进度与遗留项.md](docs/06-进度与遗留项.md)。
+
 ---
 
 ## 一键使用
