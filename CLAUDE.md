@@ -8,7 +8,7 @@ Cursor 界面简体中文汉化工程。**开工前请读完本文件。**
 且不破坏 Cursor、不影响其正常使用、每一步都可回滚。
 
 **已交付**：`install.cmd` 一键安装、`sync` + 计划任务自动跟随 Cursor 升级（NLS + AI 面板两条通道）。
-**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 5,381 条、保留英文 721 条。
+**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 5,431 条、保留英文 728 条。
 **不是**运行时注入，而是改写三个 bundle 里的字符串常量，外加一条 CSS 字体通道：
 
 | 目标 | 校验 | 处理 |
@@ -37,11 +37,11 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 
 | 目标 | 命中 | 候选（去重） | 已译 | 保留英文 | 未处理 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| glass | 8,728 处 | 5,629 | 4,933 | 696 | **0** |
-| anysphere | 856 处 | 644 | 573 | 71 | **0** |
-| 内核 desktop.main | 3,905 处 | 3,005 | 2,623 | 382 | **0** |
+| glass | 8,807 处 | 5,681 | 4,980 | 701 | **0** |
+| anysphere | 863 处 | 649 | 577 | 72 | **0** |
+| 内核 desktop.main | 3,943 处 | 3,030 | 2,648 | 382 | **0** |
 
-`data/m4.json` 5,381 条；`data/m4-skipped.json` 721 条。
+`data/m4.json` 5,431 条；`data/m4-skipped.json` 728 条。
 早先那 59 条「喂给模型而非用户」的内核 JSON-schema `description` 现已收进 `data/m4-skipped.json`
 逐条注明原因，与其余保留项合并统计 —— **不再另设「未处理」这一状态**。
 `out/vs/workbench/workbench.xai-commerce-prepaid.js` 同样免校验，但实测命中 0 条，无需处理。
@@ -88,7 +88,7 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 - 那 59 条内核 JSON-schema `description` 已按「喂给模型而非用户」的判断保留英文，
   收进 `data/m4-skipped.json` 并逐条注明原因 —— **主 IDE 已无「未处理」候选**。
 - ★ **M4 取值形态**（2026-10-15 补齐，实现在 `src/m4/scan.mjs`）。除最基础的
-  `字段:"文案"` 外，还有五类必须单独识别，否则整片漏译：
+  `字段:"文案"` 外，还有八类必须单独识别，否则整片漏译：
   ① `title:{value:"…",original:"…"}` 成对结构（`value` 本身在 `NEVER_FIELDS` 里，
      靠 `TITLE_OBJ_RE` 单独兜住）；② 设置页那份 ≥5 成员的 `id:"文案"` **左导航映射表**
      （键是小写 id，永远匹配不上 `UI_FIELDS`，靠 `NAV_MAP_RE`/`NAV_ENTRY_RE` 识别）；
@@ -102,6 +102,22 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
   前三道缺一不可 —— 实测会放进 Statsig 字段映射（`{EventCount:"ec",…}`）、权限 scope
   （`{ReadSpend:"team.spend.read",…}`）、枚举 slug（`{SOFTWARE_ENGINEER:"software-engineer",…}`），
   值被翻成中文写回就是直接改运行时语义。
+  ⑥ **三元链的外层分支**（`TERNARY_CHAIN_RE`）：`xa?"This PC":_r?"This Mac":"This Computer"`
+     的 else 支是另一条三元而不是字面量，而 `TERNARY_RE` 只认「两支都是字面量」，整支漏掉
+     —— 同一个函数渲染出来会是「This PC / 此 Mac / 此计算机」三不像。
+  ⑦ **本地化壳的对象形态**（`SHIM_LOCALIZE_RE`）：
+     `D({key:"glassOsEditUndo",comment:["&& denotes a mnemonic"]},"&&Undo")`。这层壳对
+     非数字键直接返回英文实参（`typeof key=="number"?表[key]:msg`），语言包永远够不着，
+     只能改字面量 —— 编辑菜单下拉那一排 Undo/Redo/Cut/Copy/Paste/Select All 就是这么丢的。
+     助记符串过不了 `isUiText` 的首字母闸，用 `isMnemonicText` 只放宽这一条。
+  ⑧ **三元深链**（`TERNARY_DEEP_CHAIN_RE`）：中间段带等值比较/`&&` 的链，
+     `Move to this machine` / `Login` / `Unstage All` 一族。判定 = 「`?` 后那一支像文案」
+     + 用**不消耗字符的先行断言**确认后面跟着一条由「含等值比较的表达式 ? "文案" : 」串成的链；
+     断言写成普通匹配会在链上交替命中、后面的分支轮不到自己那次匹配（实测 41 → 29）。
+     放行尺度按分支独立判定，**不做 ⑥ 那种全链同尺度**：链上后续环节里的 `"unreachable"` /
+     `"cloud"` / `"ENETUNREACH"` 是**比较操作数**（标识）不是渲染分支，全链同尺度实测要白丢 31 条正解。
+     ⑥⑦⑧ 合计净增 80 条去重候选；`Insert` 被标识值守卫自动挡下，`Windows` / `Merge Request`
+     按专有名词与术语表一致性保留英文（见 `data/m4-skipped.json`）。
 - ★ **`*Label` 白名单是逐个筛出来的，不是按后缀批量收**（`src/m4/fields.mjs`）。
   2026-10-15 从两个免校验 bundle 里扫出 362 个属性位置出现过的 `*Label` 字段，
   逐个加进去量增量，**只有 58 个能产生新串**，只把这 58 个并入 `UI_FIELDS`。
@@ -123,7 +139,7 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
      （`` `'{snip} ${n}` ``），此后大段区间漏译，Agent 窗口菜单标题 `title:"New Browser"`
      就是这么丢的（956 条候选）。补法是 `DIRECT_FIELD_RE` —— 一条不依赖配对的等价正则
      直接跑原文，与 `LIT` 那轮按起始偏移去重（`take` 里的 `seen`），**只净增不覆盖**。
-     五条形状规则本来就跑原文，不受配对影响，这条把字段规则拉齐。
+     八条形状规则本来就跑原文，不受配对影响，这条把字段规则拉齐。
 - 覆盖率 **100.00%**（13,530 / 13,530）= 语言包 11,559 + 路径归一化 **328** + 补译词典 **1,643**
   —— 这是 1,971 条缺口的分解：① 归一化映射上限 332，其中 4 条占位符不匹配被闸拒
   （`stats.renamedRejected`），净救回 328、投影 87.86%；② 词典实际命中 1,643 条
