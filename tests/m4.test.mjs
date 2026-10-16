@@ -255,6 +255,42 @@ test("scanBundle：无字段名可依的位置，凡在任何地方被比较过�
   assert.deepEqual(scanBundle(withField).map((h) => h.raw), ["Enter"]);
 });
 
+test("scanBundle：模板串里的单引号不会让整片字段规则失明", () => {
+  // LIT 只认引号配对。模板字符串里的一个 apostrophe 会跟后面某个单引号串的**开引号**
+  // 配上对，把中间整段（含真实字面量）吞成一个字符串 token —— 那些真字面量压根不会被
+  // 访问到，字段规则就此整片失效。实测 glass bundle 第一处翻转在偏移 11385
+  // （`'{snip} ${n}`），此后一大段区间漏译，Agent 窗口菜单标题 New Browser 就是这么丢的。
+  // 补的是一条不依赖配对的同规则通道，按起始偏移去重，只净增、不覆盖。
+  const flip = `u=\`it's\`;b={title:"New Browser"};c='z'`;
+  const hits = scanBundle(flip);
+  assert.deepEqual(hits.map((h) => h.raw), ["New Browser"], "翻转区间里的真字面量必须还能命中");
+  assert.equal(flip.slice(hits[0].start, hits[0].end), `"New Browser"`, "补回命中的区间同样要精确");
+
+  // apostrophe 个数为偶时不会翻转 —— 两种情况都得命中，修的是「不再漏」，不是「换个漏法」
+  assert.deepEqual(
+    scanBundle(`u=\`it's\`;c='z';b={title:"New Browser"}`).map((h) => h.raw),
+    ["New Browser"]
+  );
+
+  // 真实形态：HTML 片段装在单引号 JS 字符串里，属性值就是用户看得见的 tooltip。
+  // 另一条通道按位置改写，改写的是那一小段属性值本身，不会破坏宿主字符串。
+  const html = `wt('<button title="Save">')`;
+  assert.deepEqual(scanBundle(html).map((h) => [h.field, h.raw]), [["title", "Save"]]);
+
+  // 补回的通道同样要过白名单与标识守卫，不能因为「另一条路」就放行
+  assert.deepEqual(scanBundle(`u=\`it's\`;b={"data-test":"New Browser"};c='z'`).map((h) => h.raw), []);
+  assert.deepEqual(
+    scanBundle(`u=\`it's\`;b={title:"New Browser"},k=function(e){return e.title==="New Browser"};c='z'`)
+      .map((h) => h.raw),
+    []
+  );
+  assert.deepEqual(
+    scanBundle(`u=\`it's\`;b={title:"New Browser"};c='z'`, { nlsExclude: new Set(["New Browser"]) })
+      .map((h) => h.raw),
+    []
+  );
+});
+
 test("targets：只有内核 bundle 标了 checksummed / nlsExclude", () => {
   const core = M4_TARGETS.filter((t) => t.checksummed);
   assert.deepEqual(

@@ -50,6 +50,19 @@ const CMP_ID_RE = new RegExp(
   "g"
 );
 
+// 「字段名紧邻字符串」这条规则的第二条通道：直接在原文上匹配，不经过字符串 token 切分。
+//
+// 起因见 scanBundle 里的说明：LIT 只认引号配对，而模板字符串里的引号（`` `'{snip} ${n}` ``、
+// `https://` 那类）会让配对**整体翻转**，此后一大段区间里的真实字符串被当成「串间代码」，
+// 这条规则整片看不见。实测 Agent 窗口菜单标题 `title:"New Browser"` 就是这么漏的。
+// 五条形状规则与两张辅助表本来就是正则直接跑原文，不受配对影响；这条通道把字段规则拉齐。
+//
+// 写法与 FIELD_RE 等价（字段名 + `:`/`=` + 一个格式完整的字面量），只是不依赖前后文窗口。
+const DIRECT_FIELD_RE = new RegExp(
+  String.raw`(?:"([A-Za-z][\w-]*)"|'([A-Za-z][\w-]*)'|([A-Za-z_$][\w$]*))\s*[:=]\s*(["'])((?:\\.|(?!\4)[^\\\n\r])*)\4`,
+  "g"
+);
+
 /**
  * 收集「被当作标识用过」的文案值。
  *
@@ -354,6 +367,23 @@ export function scanBundle(source, { nlsExclude } = {}) {
     if (constIds.has(field) && identity.any.has(raw)) continue;
 
     take(m.index, end, m[1] !== undefined ? '"' : "'", raw, field);
+  }
+
+  // 上面那轮走 LIT 切分；模板字符串里的引号会让它的配对整体翻转，翻转区间里的真字符串
+  // 被当成「串间代码」，字段规则整片失效。这里用一条不依赖配对的同规则正则补回来 ——
+  // 两轮按起始偏移去重（take 里的 seen），所以只会净增、不会覆盖上面那轮的结果。
+  for (const m of source.matchAll(DIRECT_FIELD_RE)) {
+    const quote = m[4];
+    const raw = m[5];
+    if (!isUiText(raw)) continue;
+    if (nlsExclude && nlsExclude.has(raw)) continue;
+    const field = normalizeFieldName(m[1] ?? m[2] ?? m[3]);
+    if (!constIds.has(field) && (NEVER_FIELDS.has(field) || !UI_FIELDS.has(field))) continue;
+    if (identity.byField.get(field)?.has(raw)) continue;
+    if (constIds.has(field) && identity.any.has(raw)) continue;
+    // 替换区间从匹配末尾回推，与映射表那条同理：正则整体以值的收引号结尾，回推恒精确。
+    const start = m.index + m[0].length - (quote + raw + quote).length;
+    take(start, start + quote.length + raw.length + quote.length, quote, raw, field);
   }
 
   for (const h of collectShapeHits(source, { identity, cmpAny })) {
