@@ -1,0 +1,12 @@
+version: 2
+
+# 仓库零第三方依赖（没有 package.json），所以只监控 GitHub Actions 的版本，
+# 避免 ci.yml 里引用的 action 慢慢落在废弃版本上。
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "ci"

@@ -1,7 +1,7 @@
 name: 功能建议 / 漏译反馈
 description: 建议新功能，或反馈某处文案仍是英文
 title: "[建议] "
-labels: ["enhancement"]
+labels: ["新功能"]
 body:
   - type: markdown
     attributes:

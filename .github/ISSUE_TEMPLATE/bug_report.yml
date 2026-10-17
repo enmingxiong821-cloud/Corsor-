@@ -1,7 +1,7 @@
 name: Bug 报告
 description: 汉化没生效、界面显示异常、Cursor 起不来等问题
 title: "[Bug] "
-labels: ["bug"]
+labels: ["缺陷"]
 body:
   - type: markdown
     attributes:
