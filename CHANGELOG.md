@@ -9,6 +9,51 @@ Cursor 升级后重新汉化就递增（例如 Cursor 出 3.25.0 → `zh-3.25.0.
 
 ---
 
+## zh-3.25.6.1 — 2026-10-18
+
+commit `d1c6165` ｜ Cursor **3.25.6** / 内核 VS Code 1.128.0
+
+**适配 Cursor 3.25.6。** 计划任务在 2026-10-18 11:34 检测到升级并自动完成 NLS 重建、
+bundle 改写、校验值重算与字体通道；本版补齐新版本带来的新增文案与一条取值规则。
+
+### 新版本带来的增量
+
+- NLS 键表 13,530 → **13,533**（+3 键，全部由 `data/overrides.json` 补译，覆盖率仍 100%）
+- M4 新增 **216 条**候选：App Secrets、Agent 安全审查与 PR 审查、合并队列、项目邀请、
+  Origin 命名空间、环境面板、搜索与侧栏、颜色名、开发类开关等
+- 215 条译为中文；`Sky Map` 作为示例应用名保留英文（收进 `data/m4-skipped.json` 并注明原因）
+
+### 新规则 ⑩：裸 `return` / 混合三元白名单
+
+Agent 输入框的占位文案与模式说明（`Add a follow-up`、`Ask, learn, brainstorm`、
+`Plan, Build, / for skills, @ for context` 等 15 条）同时躲过前九条规则：写法只有裸
+`return "…"`、`switch` 分支里的 `return "…"`，以及「三元一支是变量」。与规则 ⑨ 同构，
+名单按目标登记在 `M4_TARGETS[].bareReturnAllow`，逐值确认过全 bundle 只出现在渲染位置、
+没有任何一处参与等值比较。规则本身净增 18 处（仅 glass），anysphere 与内核 0 处。
+
+### 指标
+
+| 指标 | 值 |
+| --- | --- |
+| NLS 覆盖率 | 13,533 / 13,533（100.00%），缺口 0 |
+| M4 命中 / 可写入 | 13,716 处 / 12,577 处（未处理 0） |
+| 译文表 / 保留英文 | 5,687 / 728 |
+| `scan` / `verify` / 测试 | 100% / 6-6 / 73-73 |
+
+### 验证
+
+- 真机落盘：glass 8,103 处 / anysphere 784 处 / 内核 3,690 处，`verify` 6/6
+- 抽查 `workbench.glass.main.js`：「规划、构建；/ 调用技能，@ 引用上下文」「添加密钥」
+  「安全审查员」「合并 Pull Request」均已出现
+- 三个目标 dry-patch `UNHANDLED=0`，`assertSyntax` 全过
+
+### 文档
+
+`CLAUDE.md`、`README.md`、`docs/04`、`docs/05`、`docs/06` 与 PR 模板同步到
+3.25.6 / 13,533 / 十条规则的统一口径。
+
+---
+
 ## zh-3.24.18.6 — 2026-10-17
 
 commit `9e84258` ｜ Cursor 3.24.18 / 内核 VS Code 1.128.0
