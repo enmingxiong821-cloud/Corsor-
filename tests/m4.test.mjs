@@ -434,6 +434,64 @@ test("scanBundle：裸常量只按目标白名单收，白名单外一条不碰"
   );
 });
 
+test("scanBundle：裸 return / 混合三元只按目标白名单收，白名单外一条不碰", () => {
+  const allow = ["Continue locally"];
+  const src = `function f(){if(x)return"Continue locally";switch(t){case"chat":return"Ask, learn, brainstorm"}}`;
+
+  // 不下发名单：九条形状规则一条都够不着这两种写法
+  assert.deepEqual(scanBundle(src).map((h) => h.raw), []);
+
+  const hits = scanBundle(src, { bareReturnAllow: allow });
+  assert.deepEqual(hits.map((h) => [h.field, h.raw]), [[null, "Continue locally"]]);
+  // 区间只套住值本身
+  assert.equal(src.slice(hits[0].start, hits[0].end), '"Continue locally"');
+
+  // 混合三元：`UL=$b?Ojs:"…"` 的一支是变量，TERNARY_RE 要求两支都是字面量，够不着
+  assert.deepEqual(
+    scanBundle(`UL=$b?Ojs:"Continue locally"`, { bareReturnAllow: allow }).map((h) => h.raw),
+    ["Continue locally"]
+  );
+
+  // 该值在别处参与过等值比较时仍被标识值守卫挡下
+  assert.deepEqual(
+    scanBundle(`function f(){return"Continue locally"};q=x==="Continue locally"`, {
+      bareReturnAllow: allow,
+    }).map((h) => h.raw),
+    []
+  );
+
+  // 名单不等于全局放行：名单外的裸 return 照旧不碰
+  assert.deepEqual(scanBundle(src, { bareReturnAllow: ["Another Label"] }).map((h) => h.raw), []);
+});
+
+test("targets：Agent 占位/模式文案白名单同时下发到 glass 与内核，且词典里有译文", () => {
+  const withReturn = M4_TARGETS.filter((t) => t.bareReturnAllow);
+  assert.deepEqual(
+    withReturn.map((t) => t.rel),
+    ["out/vs/workbench/workbench.glass.main.js", "out/vs/workbench/workbench.desktop.main.js"],
+    "同一段代码在 glass 与内核里各打包一份，两处必须都下发"
+  );
+  const dict = JSON.parse(fs.readFileSync(path.join(ROOT, "data/m4.json"), "utf8"));
+  for (const t of withReturn) {
+    assert.equal(
+      new Set(t.bareReturnAllow).size,
+      t.bareReturnAllow.length,
+      `${t.rel} 的白名单不得有重复项`
+    );
+    // 名单里每一条都得有译文，否则规则命中后 applyHits 只会记 missing
+    for (const v of t.bareReturnAllow) {
+      assert.ok(dict[v], `${t.rel} 的白名单项缺译文：${JSON.stringify(v)}`);
+    }
+  }
+  // 背景模式那条走的是 ⑨ 裸常量通道（glass 的 aMg / 内核的 PFy）
+  for (const t of withReturn) {
+    assert.ok(
+      t.bareConstAllow.includes("Build, research, debug at a longer horizon"),
+      `${t.rel} 的裸常量名单缺背景模式说明`
+    );
+  }
+});
+
 test("targets：只有内核 bundle 标了 checksummed / nlsExclude", () => {
   const core = M4_TARGETS.filter((t) => t.checksummed);
   assert.deepEqual(

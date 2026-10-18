@@ -7,9 +7,9 @@
 
 | 指标 | 实测值 |
 | --- | ---: |
-| Cursor 版本 | 3.24.18（内核 VS Code 1.128.0） |
-| 界面消息键总数 | 13,530 |
-| 中文覆盖 | **13,530（100.00%）** |
+| Cursor 版本 | 3.25.6（内核 VS Code 1.128.0） |
+| 界面消息键总数 | 13,533 |
+| 中文覆盖 | **13,533（100.00%）** |
 | 被校验文件 | 6 个 —— 4 个保持原样，2 个改写后同步重算校验值（`workbench.desktop.main.js` 与字体通道的 `workbench.desktop.main.css`） |
 
 各版本改了什么、验证了什么见 [CHANGELOG.md](CHANGELOG.md)；
@@ -92,7 +92,7 @@ Cursor 启动时按这个规则取界面文案：
 
 ## 两个层次
 
-**NLS 消息层**：13,530 条标准界面文案，跑 `scan` 报 **100.00% / 缺口 0**。做法是改写 `out/nls.messages.json` 并失效 `clp` 缓存 —— 这个文件免校验，所以不重算任何哈希。
+**NLS 消息层**：13,533 条标准界面文案，跑 `scan` 报 **100.00% / 缺口 0**。做法是改写 `out/nls.messages.json` 并失效 `clp` 缓存 —— 这个文件免校验，所以不重算任何哈希。
 
 **AI 面板层（M4）**：Cursor 自有的聊天、智能体面板等由 React/SolidJS **硬编码渲染**，不走 NLS。做法是直接改写 bundle 里的字符串常量：
 
@@ -116,13 +116,13 @@ Cursor 启动时按这个规则取界面文案：
 
 **标识值守卫**：代码里存在 `e.label==="Task"`、`o.label==="Production"?"prod":"dev"` 这类「拿显示文字反查标识」的写法。同一个值在渲染侧被翻译、在判断侧保持英文，就会失配（实测后果：`backgroundComposerEnv` 写不进存储、Cancel 快选返回错值）。所以凡参与过等值比较的字段值一律不翻，代价是 10 条文案让位给正确性。
 
-译文表 5,463 条（`data/m4.json`），另有 727 条经判断**保留英文**（工具参数 schema、遥测指标、调试标签、模型名与专有名词），清单见 `data/m4-skipped.json`。下表按目标拆分（同一英文串在不同文件里各计一次）：
+译文表 5,687 条（`data/m4.json`），另有 728 条经判断**保留英文**（工具参数 schema、遥测指标、调试标签、模型名与专有名词），清单见 `data/m4-skipped.json`。下表按目标拆分（同一英文串在不同文件里各计一次）：
 
 | 目标 | 命中 | 候选（去重） | 已译 | 保留英文 | 未处理 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| glass | 8,840 处 | 5,712 | 5,011 | 701 | **0** |
-| anysphere | 865 处 | 650 | 578 | 72 | **0** |
-| workbench.desktop.main | 3,969 处 | 3,056 | 2,674 | 382 | **0** |
+| glass | 8,788 处 | 5,721 | 5,036 | 685 | **0** |
+| anysphere | 856 处 | 647 | 575 | 72 | **0** |
+| workbench.desktop.main | 4,072 处 | 3,169 | 2,787 | 382 | **0** |
 
 **未处理已清零**：早先刻意留英文的那 59 条内核 JSON-schema `description`（如 `Name of the debug visualizer`，主要喂给模型而非用户）现已统一收进 `data/m4-skipped.json` 逐条注明原因，不再区分「未处理」与「保留英文」两种状态。
 
@@ -139,6 +139,8 @@ Cursor 启动时按这个规则取界面文案：
 > 同日又补第九类：**裸常量值白名单**（`var Eee="No Repository",fKr="Start from scratch";`）。模块级常量赋值既没有字段名可依、也不是三元或兜底，前八条规则一条都够不着；而通用的「裸常量」规则实测会把 SVG 的 `d` 路径、zod 错误表、Java `toString` 格式整片收进来，已否决。所以改成**逐个值开口子，并且名单挂在目标上**（`M4_TARGETS[].bareConstAllow`），当前只有 anysphere 那两个仓库选择器的默认标签。名单必须按目标限定而不能做成全局值白名单，因为同一个英文串换个文件身份就变了：`Start from scratch` 在 glass（`Sye`）与内核（`_Yb`）里是「标签兼哨兵」，`t.displayName.trim()===Sye` 拿它比对环境数据里的显示名、`name:_Yb` 写进工作区标识，翻掉会让 pending-new-project 环境被误判成普通工作区 —— 那两处因此保持英文，只在 anysphere 里译为「从头开始」。匹配只锚「`=值`」不锚标识符：minified 名在同一个 bundle 里会被不同模块复用，锚标识符等于给自己埋雷。
 >
 > 同日把第九类的名单从 anysphere 扩到三个目标：**计费 / 用量页**那族文案（`planUsage`、`plan-usage-included-section`、`plan-usage-on-demand-section`、`on-demand-limit-modal`、`get-more-usage-modal`、`buy-credits-modal`、`glass-usage-lock` 等模块）被抽成模块级常量，却只出现在 `switch` 的 `return`、默认 props 和三元分支上，没有 `字段:常量` 这种位置，前九条规则一条都够不着 —— 套餐与用量整页因此停在英文。另有两个非 `*Label` 命名的展示字段 `trayLabel`、`disabledPrimaryActionHintText` 一并收录（各带来 4 条限额提示与按钮禁用说明）。逐条核过使用站点后**刻意留了三条英文**：`Share exceeds content limits`（子串判定）、`No response was received within the time limit`（既是 `startsWith` 哨兵又被插进提示词模板）、`The AI provider is rate-limiting requests or is temporarily at capacity.`（只出现在错误回放用的脚本化演示数据里，不是真实文案）。同族的 `Premium`、`Get more usage with Premium`、`Upgrade to Premium` 在三个 bundle 里出现 0 次 —— 由服务端下发，本地改不到。
+>
+> 2026-10-18 适配 Cursor **3.25.6**（内核仍为 1.128.0），并补第十类规则：**裸 `return` / 混合三元白名单**。Agent 输入框的占位文案与模式说明（`Plan, Build, / for skills, @ for context`、`Add a follow-up`、`Ask, learn, brainstorm` 等 15 条）写法只有 `return "…"`、`switch` 分支里的 `return "…"`、以及「三元一支是变量」三种，逐条核过全 bundle 的用途后按目标登记（`M4_TARGETS[].bareReturnAllow`），规则本身净增 18 处（仅 glass）。同批补了 215 条 3.25.6 新增界面文案（App Secrets、Agent 安全审查、合并队列、项目邀请、Origin 命名空间、环境面板、搜索与侧栏等），译文表 5,687 条、保留英文 728 条，三个 bundle 的未处理候选仍为 **0**。
 
 
 安全措施：改写前先 `node --check` 校验整份语法，语法不过就中止且不写；写入用「临时文件 + 原子改名」，47 MB 文件写到一半断电也不会留下半截文件；被校验文件（内核 bundle 与字体 CSS）写入后立刻把 6 个文件全部重算一遍，任何一个对不上就**自动回滚**该文件与 `product.json`，退回写入前状态。万一恰在「文件已写、校验值未更新」的间隙被强杀，下次 `sync` 会认出那是自己的半成品并**补算**校验值 —— 而不是卡在「无需改写」分支里再也修不回来。备份与 NLS 层共用同一套 manifest，`restore` 会一并还原。
@@ -195,9 +197,9 @@ Cursor 启动时按这个规则取界面文案：
 node src/cli.mjs scan && node src/cli.mjs verify && node --test "tests/**/*.test.mjs"
 ```
 
-预期依次是 **13,530 / 13,530（100.00%）**、**6/6 通过**、**全绿**。
+预期依次是 **13,533 / 13,533（100.00%）**、**6/6 通过**、**全绿**。
 
-- **反馈漏译**：先查 `data/m4-skipped.json` —— 那 727 条是**刻意保留英文**的
+- **反馈漏译**：先查 `data/m4-skipped.json` —— 那 728 条是**刻意保留英文**的
   （模型参数 schema、遥测指标、调试标签、专有名词，以及翻了会导致判断侧与显示侧失配的标识值）。
 - **改扫描 / 改写规则**：请一并补 `tests/m4.test.mjs` 的回归用例。那些规则的边界决定了
   哪些英文字符串会被写进 47 MB 的 bundle，放宽错了的代价是 Cursor 白屏，不是少一块中文。

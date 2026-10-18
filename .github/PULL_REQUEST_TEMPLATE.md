@@ -14,7 +14,7 @@
 
 **必过项**（三条只读命令，贴输出到上面的「验证步骤」里也行）：
 
-- [ ] `node src/cli.mjs scan` 报 **13,530 / 13,530（100.00%）**、缺口 0
+- [ ] `node src/cli.mjs scan` 报 **13,533 / 13,533（100.00%）**、缺口 0
 - [ ] `node src/cli.mjs verify` **6/6 通过**
 - [ ] `node --test "tests/**/*.test.mjs"` 全绿
 

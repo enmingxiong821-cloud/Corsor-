@@ -134,6 +134,32 @@ function bareConstRe(value) {
   return new RegExp(`${BARE_CONST_HEAD}(["'])(${esc})\\1`, "g");
 }
 
+// ⑩ 裸 return / 混合三元 白名单（2026-10-18 加）。
+//
+//    Agent 输入框的占位文案与模式说明两族整个漏译，原因是它们的写法同时躲过了前面九条：
+//      `if(se())return"Add a follow-up"`                    —— 裸 return，无字段名
+//      `switch(t){case"chat":return"Ask, learn, brainstorm"}` —— 同上
+//      `UL=$b?Ojs:"Plan, Build, / for skills, @ for context"` —— 三元一支是变量，
+//         而 TERNARY_RE 要求两支都是字面量，够不着
+//    实测每个值在 bundle 里只出现在这三种位置，没有任何一处参与等值比较。
+//
+//    与 ⑨ 同构：值白名单挂在**目标**上，逐个值确认过用途后才登记。
+//    不写通用「裸 return」规则的理由同 ⑨ —— 裸 return 里混着 SVG path、zod 错误表、
+//    Java toString 格式，整片收进来会改坏运行时。
+//
+//    这里顺带认三元的一支（而不是像 ⑥ 那样要求全链同尺度）：同一个串会在两处渲染
+//    （菜单里裸 return、输入框里 `$b?Ojs:"…"`），只翻一处会得到中英混杂。
+//    `\?(?!\.|\?)` 排掉可选链与 `??`；第三支只认「`?` 后接简单标识符/成员访问再 `:`」，
+//    与 TERNARY_CHAIN_RE 的中间段尺度一致。
+function bareReturnRe(value) {
+  const esc = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const lit = `(["'])(${esc})\\1`;
+  return new RegExp(
+    String.raw`(?:\breturn\s*|\?(?!\.|\?)\s*|\?(?!\.|\?)[^,;:?\n\r]{1,60}:\s*)` + lit,
+    "g"
+  );
+}
+
 // 菜单助记符（`&&U` 那种）会让 isUiText 的首字母闸失守：`&&Undo`、`Cu&&t` 都不以大写开头。
 // 把 `&&` 全剥掉再验一次即可 —— 只放宽「首字母」这一条，其余判定照旧。
 const isMnemonicText = (s) => isUiText(s) || isUiText(s.replace(/&&/g, ""));
@@ -304,11 +330,12 @@ function litEnd(start, quote, content) {
   return start + quote.length + content.length + quote.length;
 }
 
-export function collectShapeHits(source, { identity, cmpAny, bareConstAllow } = {}) {
+export function collectShapeHits(source, { identity, cmpAny, bareConstAllow, bareReturnAllow } = {}) {
   const out = [];
   const cmp = identity?.any ?? new Set();
   const anyCmp = cmpAny ?? new Set();
   const bareConstRes = (bareConstAllow ?? []).map((v) => bareConstRe(v));
+  const bareReturnRes = (bareReturnAllow ?? []).map((v) => bareReturnRe(v));
   const emit = (start, quote, raw, field, accept = isUiText) => {
     if (!accept(raw)) return;
     // 兜底/三元没有字段名可依，只能按值挡，而且要比字段那层挡得更宽：
@@ -371,6 +398,14 @@ export function collectShapeHits(source, { identity, cmpAny, bareConstAllow } = 
     });
   }
 
+  // ⑩ 裸 return / 混合三元白名单（形状与理由见 bareReturnRe 那一段）。
+  //    与 ⑨ 同样没有字段名可依，field 传 null，走按值挡的那层标识守卫。
+  for (const re of bareReturnRes) {
+    each(re, (m) => {
+      emit(m.index + m[0].length - (m[1] + m[2] + m[1]).length, m[1], m[2], null);
+    });
+  }
+
   // 映射表要先框出整块，再逐条取值 —— 正则的重复组只保留最后一次捕获，分两步才拿得到每一条。
   each(NAV_MAP_RE, (map) => {
     const span = map[0];
@@ -416,16 +451,18 @@ const CASE_LEFT_RE = /\bcase\s*$/; // case "X": —— 前面可能是 { ，不�
 
 /**
  * @param {string} source bundle 源码
- * @param {{nlsExclude?: Set<string>, bareConstAllow?: string[]}} [opts]
+ * @param {{nlsExclude?: Set<string>, bareConstAllow?: string[], bareReturnAllow?: string[]}} [opts]
  *   nlsExclude：NLS 英文表里的串集合。只对**被校验的内核 bundle** 传 ——
  *   那层的字面量是 localize() 的默认值，表内有键就是死文本，翻它不起作用。
  *   详见 targets.mjs 头部的规则对照。
  *   bareConstAllow：规则 ⑨ 的裸常量值白名单（`var X="…"` 形态，没有字段可依），
  *   只登记逐个确认过是纯渲染标签的值，且**按目标下发** —— 同一个串换个 bundle
  *   可能兼作哨兵。见 targets.mjs 的 anysphere 目标。
+ *   bareReturnAllow：规则 ⑩ 的裸 return / 混合三元白名单（`return"…"`、
+ *   `x?var:"…"` 形态），同样按目标下发，理由同上。
  * @returns {Array<{start,end,quote,raw,field,context}>} 按 start 升序
  */
-export function scanBundle(source, { nlsExclude, bareConstAllow } = {}) {
+export function scanBundle(source, { nlsExclude, bareConstAllow, bareReturnAllow } = {}) {
   const constIds = collectUiConstants(source);
   const identity = collectIdentityValues(source, constIds);
   const hits = [];
@@ -496,7 +533,7 @@ export function scanBundle(source, { nlsExclude, bareConstAllow } = {}) {
     take(start, start + quote.length + raw.length + quote.length, quote, raw, field);
   }
 
-  for (const h of collectShapeHits(source, { identity, cmpAny, bareConstAllow })) {
+  for (const h of collectShapeHits(source, { identity, cmpAny, bareConstAllow, bareReturnAllow })) {
     if (nlsExclude && nlsExclude.has(h.raw)) continue;
     take(h.start, h.end, h.quote, h.raw, h.field);
   }

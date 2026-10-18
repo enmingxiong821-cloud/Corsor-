@@ -70,6 +70,41 @@ const USAGE_BILLING_LABELS_EXTRA = [
   "Usage limit reached, but you can continue at reduced speeds.",
 ];
 
+// ★ Agent 输入框占位文案 + 模式说明（2026-10-18 加，规则 ⑩）。
+//
+//   两族都是同一段代码在 glass 与内核里各打包一份（写法完全相同），anysphere 里 0 次。
+//   写法上同时躲过前九条：占位文案是裸 `return"…"`，模式说明是 `switch` 的
+//   `case"chat":return"…"`，还有一处 `$b?Ojs:"…"` 的三元一支是变量 ——
+//   没有字段名可依、不是裸常量赋值、也不是「两支都是字面量」的三元。
+//
+//   逐条核过（全 bundle 逐处打印上下文）：每个值只出现在「声明 / 返回 / 三元分支」，
+//   没有任何一处参与等值比较或字符串拼接，也没有一处写进标识或数据表。所以是纯展示文案。
+//
+//   注意 `Add a follow-up` 早就躺在 data/m4.json 里（另有一批模式说明也是），
+//   但在规则 ⑩ 落地前没有任何规则能命中它们 —— 词典条目是死的，界面照旧英文。
+const AGENT_COMPOSER_HINTS = [
+  // 输入框占位
+  "Plan, Build, / for skills, @ for context",
+  "Ask, learn, brainstorm",
+  "Work on explicitly added files (no tools)",
+  "Plan, search, build anything",
+  "Continue locally",
+  "Reject, suggest, follow up?",
+  "Ask follow-ups in the worktree",
+  "Add a follow-up",
+  // getModeDescription() 的 switch 分支
+  "Ask Cursor questions about your codebase",
+  "Manually decide what gets added to the context (no tools)",
+  "Create detailed plans for accomplishing tasks",
+  "Create structured plans with implementation steps",
+  "Run and coordinate multiple tasks in parallel",
+  "Coordinate long-horizon tasks with delegated subagents",
+];
+
+// 模式说明里背景模式那一条被抽成了模块级常量（glass 的 `aMg`、内核的 `PFy`），
+// 由规则 ⑨ 处理。两处都只有「声明 + `return`」两个站点，不参与比较。
+const BACKGROUND_MODE_DESCRIPTION = "Build, research, debug at a longer horizon";
+
 export const M4_TARGETS = [
   {
     rel: "out/vs/workbench/workbench.glass.main.js",
@@ -78,7 +113,9 @@ export const M4_TARGETS = [
       ...USAGE_BILLING_LABELS,
       ...USAGE_BILLING_LABELS_EXTRA,
       ...USAGE_BILLING_LABELS_GLASS_ONLY,
+      BACKGROUND_MODE_DESCRIPTION,
     ],
+    bareReturnAllow: AGENT_COMPOSER_HINTS,
   },
   {
     rel: "out/vs/workbench/workbench.anysphere-ui-automations.js",
@@ -103,7 +140,8 @@ export const M4_TARGETS = [
     // `You're out of usage` 与 `Usage limit reached, …` 在内核里是内联字面量，
     // 由 UI_FIELDS 的 trayLabel / disabledPrimaryActionHintText 两条字段规则收，
     // 不必再进白名单。
-    bareConstAllow: [...USAGE_BILLING_LABELS],
+    bareConstAllow: [...USAGE_BILLING_LABELS, BACKGROUND_MODE_DESCRIPTION],
+    bareReturnAllow: AGENT_COMPOSER_HINTS,
   },
 ];
 

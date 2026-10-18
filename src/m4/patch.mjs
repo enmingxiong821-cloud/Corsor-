@@ -16,7 +16,7 @@ function quoteAs(zh, quote) {
 
 /**
  * @param {object} zh 译文表 { [英文原文]: 中文 }
- * @param {{nlsExclude?: Set<string>, bareConstAllow?: string[]}} [opts] 透传给 scanBundle，见其说明
+ * @param {{nlsExclude?: Set<string>, bareConstAllow?: string[], bareReturnAllow?: string[]}} [opts] 透传给 scanBundle，见其说明
  * @returns {{source:string, applied:string[], missing:string[], changed:number}}
  */
 export function patchBundle(source, zh, opts) {

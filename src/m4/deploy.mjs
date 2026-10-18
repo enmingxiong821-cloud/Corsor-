@@ -198,6 +198,7 @@ export function installBundles({
     const opts = {};
     if (target.nlsExclude) opts.nlsExclude = nlsExclude;
     if (target.bareConstAllow) opts.bareConstAllow = target.bareConstAllow;
+    if (target.bareReturnAllow) opts.bareReturnAllow = target.bareReturnAllow;
     const source = readPatchSource({ dir, rel, abs, log });
     if (source === null) {
       summary.push({ rel, label, status: "foreign" });

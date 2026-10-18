@@ -4,11 +4,11 @@ Cursor 界面简体中文汉化工程。**开工前请读完本文件。**
 
 ## 一句话目标
 
-让 Cursor 界面尽量完整地显示中文 —— **NLS 层已达 100%（13,530 / 13,530）**，
+让 Cursor 界面尽量完整地显示中文 —— **NLS 层已达 100%（13,533 / 13,533）**，
 且不破坏 Cursor、不影响其正常使用、每一步都可回滚。
 
 **已交付**：`install.cmd` 一键安装、`sync` + 计划任务自动跟随 Cursor 升级（NLS + AI 面板两条通道）。
-**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 5,463 条、保留英文 727 条。
+**M4（AI 面板硬编码文案 + UI 字体）**：已实现并接入 `sync` / `setup`，译文 5,687 条、保留英文 728 条。
 **不是**运行时注入，而是改写三个 bundle 里的字符串常量，外加一条 CSS 字体通道：
 
 | 目标 | 校验 | 处理 |
@@ -33,15 +33,15 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 只定义 `--vscode-font-family` 一个就够 —— `--cursor-font-family-sans` 的定义链以它兜底。
 幂等靠 CSS 里的标记行 `/* cursor-zh-fontfix */`，Cursor 升级换掉该文件后标记消失、自动重加。
 
-**候选覆盖率**（2026-10-16 补入计费/用量白名单后重算，未处理仍为 0）：
+**候选覆盖率**（2026-10-18 适配 3.25.6 后重算，未处理仍为 0）：
 
 | 目标 | 命中 | 候选（去重） | 已译 | 保留英文 | 未处理 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| glass | 8,840 处 | 5,712 | 5,011 | 701 | **0** |
-| anysphere | 865 处 | 650 | 578 | 72 | **0** |
-| 内核 desktop.main | 3,969 处 | 3,056 | 2,674 | 382 | **0** |
+| glass | 8,788 处 | 5,721 | 5,036 | 685 | **0** |
+| anysphere | 856 处 | 647 | 575 | 72 | **0** |
+| 内核 desktop.main | 4,072 处 | 3,169 | 2,787 | 382 | **0** |
 
-`data/m4.json` 5,463 条；`data/m4-skipped.json` 727 条。
+`data/m4.json` 5,687 条；`data/m4-skipped.json` 728 条。
 早先那 59 条「喂给模型而非用户」的内核 JSON-schema `description` 现已收进 `data/m4-skipped.json`
 逐条注明原因，与其余保留项合并统计 —— **不再另设「未处理」这一状态**。
 `out/vs/workbench/workbench.xai-commerce-prepaid.js` 同样免校验，但实测命中 0 条，无需处理。
@@ -65,9 +65,9 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 
 ## 关键事实（省得重新摸索）
 
-- Cursor **3.24.18**，内核 VS Code **1.128.0**
-- `out/nls.keys.json` = `[[moduleId, [key, ...]], ...]` —— 1,150 模块 / 13,530 键
-- `out/nls.messages.json` = 长度 13,530 的英文原文数组，**与键逐位对应**
+- Cursor **3.25.6**，内核 VS Code **1.128.0**
+- `out/nls.keys.json` = `[[moduleId, [key, ...]], ...]` —— 1,152 模块 / 13,533 键
+- `out/nls.messages.json` = 长度 13,533 的英文原文数组，**与键逐位对应**
 - 语言包 bundle **确定**包在 `{contents: ...}` 里 —— 模块表是 `bundle.contents[moduleId]`
 - 校验值算法 = `base64(sha256(bytes))`，**去掉末尾 `=` 填充**
 - 被校验文件只有 6 个；`workbench.glass.main.js`、`workbench.anysphere-ui-automations.js`
@@ -88,7 +88,7 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
 - 那 59 条内核 JSON-schema `description` 已按「喂给模型而非用户」的判断保留英文，
   收进 `data/m4-skipped.json` 并逐条注明原因 —— **主 IDE 已无「未处理」候选**。
 - ★ **M4 取值形态**（2026-10-15 补齐，实现在 `src/m4/scan.mjs`）。除最基础的
-  `字段:"文案"` 外，还有九类必须单独识别，否则整片漏译：
+  `字段:"文案"` 外，还有十类必须单独识别，否则整片漏译：
   ① `title:{value:"…",original:"…"}` 成对结构（`value` 本身在 `NEVER_FIELDS` 里，
      靠 `TITLE_OBJ_RE` 单独兜住）；② 设置页那份 ≥5 成员的 `id:"文案"` **左导航映射表**
      （键是小写 id，永远匹配不上 `UI_FIELDS`，靠 `NAV_MAP_RE`/`NAV_ENTRY_RE` 识别）；
@@ -138,6 +138,16 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
      与内核（`_Yb`）里是「标签兼哨兵」，`t.displayName.trim()===Sye` 拿它比对环境数据里的显示名、
      `name:_Yb` 写进工作区标识，翻掉会让 pending-new-project 环境被误判。同一个串一个能翻、
      两个不能翻 —— 这就是名单挂目标而非挂值的原因（照旧走 `field=null` 那层标识值守卫兜底）。
+  ⑩ **裸 `return` / 混合三元白名单**（`bareReturnRe`，2026-10-18 加）：Agent 输入框的
+     占位文案与模式说明两族同时躲过前面九条 —— `if(se())return"Add a follow-up"`（裸
+     `return`，无字段名）、`switch(t){case"chat":return"Ask, learn, brainstorm"}`、
+     `UL=$b?Ojs:"Plan, Build, / for skills, @ for context"`（三元一支是变量，而
+     `TERNARY_RE` 要求两支都是字面量）。与 ⑨ 同构：值白名单挂在**目标**上
+     （`M4_TARGETS[].bareReturnAllow`），逐个值确认过「全 bundle 只出现在这三类位置、
+     没有任何一处参与等值比较」后才登记。不写通用「裸 return」规则的理由同 ⑨。
+     同一条正则顺带认三元的一支 —— 同一个串会在菜单（裸 `return`）与输入框（混合三元）
+     两处渲染，只翻一处会中英混杂；`\?(?!\.|\?)` 排掉可选链与 `??`。
+     名单目前 15 条，glass 与内核各一份（anysphere 无命中）。
 - ★ **`*Label` 白名单是逐个筛出来的，不是按后缀批量收**（`src/m4/fields.mjs`）。
   2026-10-15 从两个免校验 bundle 里扫出 362 个属性位置出现过的 `*Label` 字段，
   逐个加进去量增量，**只有 58 个能产生新串**，只把这 58 个并入 `UI_FIELDS`。
@@ -159,12 +169,12 @@ generic family 恒有匹配，写它后面等于不存在），带 `!important` 
      （`` `'{snip} ${n}` ``），此后大段区间漏译，Agent 窗口菜单标题 `title:"New Browser"`
      就是这么丢的（956 条候选）。补法是 `DIRECT_FIELD_RE` —— 一条不依赖配对的等价正则
      直接跑原文，与 `LIT` 那轮按起始偏移去重（`take` 里的 `seen`），**只净增不覆盖**。
-     九条形状规则本来就跑原文，不受配对影响，这条把字段规则拉齐。
-- 覆盖率 **100.00%**（13,530 / 13,530）= 语言包 11,559 + 路径归一化 **328** + 补译词典 **1,643**
-  —— 这是 1,971 条缺口的分解：① 归一化映射上限 332，其中 4 条占位符不匹配被闸拒
-  （`stats.renamedRejected`），净救回 328、投影 87.86%；② 词典实际命中 1,643 条
-  （`data/overrides.json` 里另有 76 条 `_` 前缀说明字段，加载器会跳过，故有效译文 1,792 条，
-  其中 149 条覆盖的是语言包/归一化已覆盖的键）。口径以 2026-10-15 实测为准。
+     十条形状规则本来就跑原文，不受配对影响，这条把字段规则拉齐。
+- 覆盖率 **100.00%**（13,533 / 13,533）= 语言包 11,559 + 补译词典 **1,974** + 路径归一化 **0**
+  —— 3.25.6 比上一版多 3 个键，全部由词典补上。词典有效译文 1,795 条
+  （`data/overrides.json` 里另有 76 条 `_` 前缀说明字段，加载器会跳过），已经覆盖了
+  原先要靠归一化投影救回的键，故本版 `renamed` 为 0；归一化上限仍是 332
+  （`rescueableByRename`），留作语言包换版时的兜底。口径以 2026-10-18 实测为准。
 - ★ 覆盖率基准必须取**备份里的原始表**，不是磁盘上当前的 `nls.messages.json`
   —— 装过之后后者已是中文，拿它当"英文原文"会凭空报出 13 条假缺口
 
@@ -217,8 +227,8 @@ base64Sha256(workbenchHtml) === "BZ8Zb4TGBbDPaaGjA+MuDJxaFsxjmmG0YMyttD4zgcU"
 node src/cli.mjs scan && node src/cli.mjs verify && node --test "tests/**/*.test.mjs"
 ```
 
-验收基准：`scan` 报 **13,530 / 13,530（100.00%）**、缺口 **0**；`verify` **6/6 通过**；
-`node --test` **71/71 通过**。数字对不上说明键表解析或基准表取错，先排查再继续。
+验收基准：`scan` 报 **13,533 / 13,533（100.00%）**、缺口 **0**；`verify` **6/6 通过**；
+`node --test` **73/73 通过**。数字对不上说明键表解析或基准表取错，先排查再继续。
 
 测试**必须用通配**（`"tests/**/*.test.mjs"`，引号不能省；`node --test tests/` 会失败）。
 不要改成只跑某一个文件 —— 漏掉 `tests/m4.test.mjs` 就等于不测「哪些英文字符串会被写进
@@ -233,7 +243,7 @@ node src/cli.mjs scan && node src/cli.mjs verify && node --test "tests/**/*.test
 | --- | --- |
 | `data/renames.json` | 路径归一化映射（已填实测值） |
 | `data/terms.json` | 术语表（翻译时保持一致） |
-| `data/overrides.json` | 补译词典（有效译文 1,792 条，实际命中 1,643 条；另含 76 条 `_` 前缀说明字段。重名键按英文原文逐条区分） |
+| `data/overrides.json` | 补译词典（有效译文 1,795 条，实际命中 1,974 键；另含 76 条 `_` 前缀说明字段。重名键按英文原文逐条区分） |
 | `build/missing.json` | 待补译工作单（按模块分组，含英文原文） |
 | `build/all-keys.json` | 全量键 + 英文原文 + 现有译文 |
 
