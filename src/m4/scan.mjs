@@ -155,7 +155,11 @@ function bareReturnRe(value) {
   const esc = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const lit = `(["'])(${esc})\\1`;
   return new RegExp(
-    String.raw`(?:\breturn\s*|\?(?!\.|\?)\s*|\?(?!\.|\?)[^,;:?\n\r]{1,60}:\s*)` + lit,
+    // 第三条也认「调用表达式结尾再跟 `:`」的三元 else 支：
+    //   `M?OSe(_n_,{reason:X,statsigUrl:Y}):"By default, get notifications…"`
+    // 真支里有逗号，靠 `[^,;:?]` 那条中间段过不去；而匹配本身按值限定，
+    // 放宽它不会波及其它文案。
+    String.raw`(?:\breturn\s*|\?(?!\.|\?)\s*|\?(?!\.|\?)[^,;:?\n\r]{1,60}:\s*|\)\s*:\s*)` + lit,
     "g"
   );
 }
@@ -163,6 +167,102 @@ function bareReturnRe(value) {
 // 菜单助记符（`&&U` 那种）会让 isUiText 的首字母闸失守：`&&Undo`、`Cu&&t` 都不以大写开头。
 // 把 `&&` 全剥掉再验一次即可 —— 只放宽「首字母」这一条，其余判定照旧。
 const isMnemonicText = (s) => isUiText(s) || isUiText(s.replace(/&&/g, ""));
+
+// ★ 语义色阶令牌表：{red:"Red",orange:"Orange",…,danger:"Danger",primary:"Primary",…}。
+// 这张表的值**既是显示名又是标识符**：同文件的 VG()/IH() 查它拿首字母大写形式去拼色阶键
+// （`bg${VG(tone)}${VG(variant)}`）。翻掉就拼出 `bg危险主要`，色阶表查不到直接抛
+// 「Semantic ladder has no row for …」—— 工作台初始化中断，整窗黑屏。
+// 标识值守卫（collectIdentityValues）挡不住这一类：它们没有参与等值比较，只参与字符串拼接，
+// 静态扫描时看不出「这个值会被拼进键」。只能按表整块识别。
+// 判据取「值全部落在令牌词汇集内 + 成员数 ≥ 8」，避免误伤正常导航表。
+const SEMANTIC_TOKEN_VALUES = new Set([
+  "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Magenta", "Purple",
+  "Added", "Modified", "Removed", "Untracked",
+  "Danger", "Success", "Warning", "Primary", "Secondary", "Tertiary", "Quaternary", "Accent", "Warn",
+]);
+const isSemanticTokenTable = (entries) =>
+  entries.length >= 8 && entries.every((e) => SEMANTIC_TOKEN_VALUES.has(e[4]));
+
+// 模块切片：bundle 里每个模块都以 `<loader>({"<name>"(){"use strict"` 起头。
+// loader 的 minified 名各 bundle 不同（glass 是 L，内核是 W），不能用固定字母。
+// 用来把命中的字面量归到所属模块 —— 少数模块整块不能碰（见 MODULE_DENY）。
+const MODULE_MARK_RE = /[A-Za-z_$][A-Za-z0-9_$]*\(\{"([^"]+)"\(\)\{"use strict"/g;
+function moduleSpans(source) {
+  const marks = [];
+  MODULE_MARK_RE.lastIndex = 0;
+  let m;
+  while ((m = MODULE_MARK_RE.exec(source)) !== null) marks.push([m.index, m[1]]);
+  return marks;
+}
+function moduleAt(marks, pos) {
+  let lo = 0;
+  let hi = marks.length - 1;
+  let ans = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (marks[mid][0] <= pos) {
+      ans = marks[mid][1];
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return ans;
+}
+
+// ★ 整块不翻的模块。semantic-ladders.js 定义并消费全部语义色阶令牌名：
+// 那张 21 成员的名表（Red/…/Danger/…/Warn）与 xwm={text:"Foreground",icon:…,border:…}
+// 的值都会被拼进引用名（`bg${tone}${variant}`、`${color}${kind}`）。翻了就得到
+// `bg危险主要` / `red前景`，初始化抛错「Semantic ladder has no row for …」直接黑屏。
+// 实测该模块只贡献 1 条真文案，放弃它换稳定性。
+const MODULE_DENY = /^semantic-ladders\.js$/;
+
+// ⑪ 模板字符串正文：description:`Accept the next word of a suggestion via ${u}`。
+// 设置页每一项的说明文字几乎都是这个形状 —— 前十条规则一律要求「引号字面量」，
+// 整批漏在英文。整段正文（含 ${…} 占位）当作 raw 处理，译文里原样保留占位。
+// 只认这些界面字段；message / error / reason 那批是 zod 校验与日志，翻不得。
+const TEMPLATE_FIELDS = new Set([
+  "description", "subheader", "header", "label", "children", "title",
+  "placeholder", "subtitle", "hint", "tooltip", "arialabel", "caption",
+]);
+const TEMPLATE_LIT_RE = /`((?:\\.|[^`\\])*)`/g;
+// 上面这条只作兜底；真正切模板用 scanTemplates —— 代码里嵌套模板
+// （`` `a${b?`c`:`d`}` ``）很常见，纯反引号配对会整片错位，跟当年 LIT 那个坑同源。
+/**
+ * 按 `${…}` 深度切出模板字符串：只有深度为 0 的反引号才是结束。
+ * @returns {Array<{start:number,end:number,raw:string}>} start 指向正文首字符
+ */
+export function scanTemplates(source) {
+  const out = [];
+  const MAX = 2000; // 超过这个长度的「模板」一定是把孤立反引号当成了起点
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== "`") continue;
+    let j = i + 1;
+    let depth = 0;
+    for (; j < source.length && j - i <= MAX; j++) {
+      const c = source[j];
+      if (c === "\\") { j++; continue; }
+      if (depth === 0 && c === "`") break;
+      if (c === "$" && source[j + 1] === "{") { depth++; j++; continue; }
+      if (depth > 0 && c === "{") { depth++; continue; }
+      if (depth > 0 && c === "}") { depth--; continue; }
+    }
+    // 没闭合 / 超长：这个反引号不是模板起点（多半是字符串里的字面反引号），跳过它继续。
+    if (j >= source.length || source[j] !== "`") continue;
+    out.push({ start: i + 1, end: j, raw: source.slice(i + 1, j) });
+    i = j;
+  }
+  return out;
+}
+// 前面可能是字段名（`description:`），也可能只是赋值（`const m=\`…\``）——
+// 后者在设置模块里很常见：文案先存进局部常量，再整个传给 Entry 的 description。
+// 因此 `=` 也认；真正的把关交给「模块名 + isUiTemplate + 比较集」三道闸。
+const TEMPLATE_LEAD_RE = /([A-Za-z_$][A-Za-z0-9_$]*)\s*([:=])\s*$/;
+// ★ 只翻「设置类模块」里的模板正文。同样的 `description:\`…\`` 形状在别处是
+// **喂给模型的工具说明**（telemetry-log.ts 里的 "Read the written chat in this agent…"），
+// 翻掉会改模型行为。用模块名收窄是最稳的判据 —— 漏译一些总好过改坏提示词。
+const TEMPLATE_MODULE_ALLOW = /settings|catalog|preferences|indexing-config|conversation-section|config\.(?:js|ts)$/i;
+// 占位替换成一个字母再交给 isUiText —— 它本身会拒绝 `$ { } 三个字符。
+const stripSlots = (s) => s.replace(/\$\{[^}]*\}/g, "X");
+const isUiTemplate = (s) => isUiText(stripSlots(s));
 
 /**
  * 收集「被当作标识用过」的文案值。
@@ -330,7 +430,7 @@ function litEnd(start, quote, content) {
   return start + quote.length + content.length + quote.length;
 }
 
-export function collectShapeHits(source, { identity, cmpAny, bareConstAllow, bareReturnAllow } = {}) {
+export function collectShapeHits(source, { identity, cmpAny, bareConstAllow, bareReturnAllow, modules } = {}) {
   const out = [];
   const cmp = identity?.any ?? new Set();
   const anyCmp = cmpAny ?? new Set();
@@ -410,8 +510,9 @@ export function collectShapeHits(source, { identity, cmpAny, bareConstAllow, bar
   each(NAV_MAP_RE, (map) => {
     const span = map[0];
     NAV_ENTRY_RE.lastIndex = 0;
-    let e;
-    while ((e = NAV_ENTRY_RE.exec(span)) !== null) {
+    const entries = [...span.matchAll(NAV_ENTRY_RE)];
+    if (isSemanticTokenTable(entries)) return;
+    for (const e of entries) {
       const field = e[1] ?? e[2];
       if (NEVER_FIELDS.has(field)) continue;
       // 位置从条目末尾回推。不能用 indexOf(e[3]) —— 键也带引号时
@@ -432,6 +533,7 @@ export function collectShapeHits(source, { identity, cmpAny, bareConstAllow, bar
     CAMEL_ENTRY_RE.lastIndex = 0;
     const entries = [...span.matchAll(CAMEL_ENTRY_RE)];
     if (entries.length < 5) return;
+    if (isSemanticTokenTable(entries)) return;
     if (entries.some((e) => NEVER_FIELDS.has(normalizeFieldName(e[1] ?? e[2])))) return;
     if (!entries.every((e) => isUiText(e[4]))) return;
     for (const e of entries) {
@@ -439,6 +541,29 @@ export function collectShapeHits(source, { identity, cmpAny, bareConstAllow, bar
       emit(map.index + e.index + e[0].length - (e[3] + e[4] + e[3]).length, e[3], e[4], e[1] ?? e[2]);
     }
   });
+
+  // ⑪ 模板字符串正文（见上）。三道额外的闸，都是实测踩出来的：
+  //   · 换行 → SVG 路径与多行 schema 说明，不是界面文案；
+  //   · 首字母小写 / 全是标识风格 → isUiTemplate 用 isUiText 的同一套判定；
+  //   · 值参与过等值比较（原串或去掉占位后的静态文本）→ 按标识处理。
+  for (const t of scanTemplates(source)) {
+    const raw = t.raw;
+    if (!raw || raw.length < 8 || raw.length > 300) continue;
+    if (raw.includes("\n")) continue;
+    if (!/^[A-Z]/.test(raw)) continue;
+    const lead = source.slice(Math.max(0, t.start - 201), t.start - 1);
+    const fm = lead.match(TEMPLATE_LEAD_RE);
+    if (!fm) continue;
+    const isAssign = fm[2] === "=";
+    const field = isAssign ? null : normalizeFieldName(fm[1]);
+    if (!isAssign && (NEVER_FIELDS.has(field) || !TEMPLATE_FIELDS.has(field.toLowerCase()))) continue;
+    // 只认设置类模块（见 TEMPLATE_MODULE_ALLOW）
+    if (!modules) continue;
+    const mod = moduleAt(modules, t.start);
+    if (!mod || !TEMPLATE_MODULE_ALLOW.test(mod)) continue;
+    if (anyCmp.has(raw) || anyCmp.has(stripSlots(raw))) continue;
+    emit(t.start - 1, "`", raw, field, isUiTemplate);
+  }
 
   return out;
 }
@@ -533,11 +658,21 @@ export function scanBundle(source, { nlsExclude, bareConstAllow, bareReturnAllow
     take(start, start + quote.length + raw.length + quote.length, quote, raw, field);
   }
 
-  for (const h of collectShapeHits(source, { identity, cmpAny, bareConstAllow, bareReturnAllow })) {
+  const marks = moduleSpans(source);
+  for (const h of collectShapeHits(source, { identity, cmpAny, bareConstAllow, bareReturnAllow, modules: marks })) {
     if (nlsExclude && nlsExclude.has(h.raw)) continue;
     take(h.start, h.end, h.quote, h.raw, h.field);
   }
 
   hits.sort((a, b) => a.start - b.start);
-  return hits;
+  if (!MODULE_DENY) return hits;
+
+  // ★ 模块级排除：语义令牌模块里的值**既是显示名又是拼键标识符**，静态规则分辨不出来。
+  // 与 SEMANTIC_TOKEN_VALUES 同一类事故的两处现场都在 semantic-ladders.js：
+  // 那张 21 成员色阶名表会被拼成 `bg危险主要`，xwm={text:"Foreground",…} 会被拼成
+  // `red前景` —— 两者都让工作台初始化抛异常、整窗黑屏。整块不动最稳，代价 1 条文案。
+  return hits.filter((h) => {
+    const name = moduleAt(marks, h.start);
+    return !(name && MODULE_DENY.test(name));
+  });
 }

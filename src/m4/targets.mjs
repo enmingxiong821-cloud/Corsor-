@@ -105,6 +105,29 @@ const AGENT_COMPOSER_HINTS = [
 // 由规则 ⑨ 处理。两处都只有「声明 + `return`」两个站点，不参与比较。
 const BACKGROUND_MODE_DESCRIPTION = "Build, research, debug at a longer horizon";
 
+// 设置页里同样被抽成模块级常量的几条（规则 ⑨）。逐个核过：全 bundle 只有
+// 「声明 + 渲染」两三个站点，没有任何一处参与等值比较或字符串拼接。
+const SETTINGS_BARE_CONST = [
+  "No always-allowed apps yet. Choose Always Allow when Cursor asks to use an app.",
+  "Automate repetitive tasks with always-on cloud agents that respond to environment triggers.",
+  "Automate repetitive tasks with always-on agents and configure Cursor's built-in agents for your team.",
+  "Upgrade for Automations, unlimited completions, MAX Mode, and more",
+];
+
+// Run Mode 的两条说明是 switch 分支里的裸 return（规则 ⑩）。
+const RUN_MODE_HINTS = [
+  "Many commands will run automatically inside the sandbox, and you can also allowlist other actions.",
+  "A classifier will run for each action and decide whether it's safe to execute this command. Allowlists are still respected.",
+];
+
+// 设置页里另外三条「三元一支是变量/调用」的文案（规则 ⑩ 顺带认三元的一支）。
+// 逐个核过：只出现在渲染位置，没有任何一处参与等值比较。
+const SETTINGS_TERNARY_HINTS = [
+  "Search Plugins, Skills, MCPs...",
+  "By default, get notifications for stable updates. In Early Access, pre-release builds may be unstable for production work.",
+  "Dismiss",
+];
+
 export const M4_TARGETS = [
   {
     rel: "out/vs/workbench/workbench.glass.main.js",
@@ -113,9 +136,10 @@ export const M4_TARGETS = [
       ...USAGE_BILLING_LABELS,
       ...USAGE_BILLING_LABELS_EXTRA,
       ...USAGE_BILLING_LABELS_GLASS_ONLY,
+      ...SETTINGS_BARE_CONST,
       BACKGROUND_MODE_DESCRIPTION,
     ],
-    bareReturnAllow: AGENT_COMPOSER_HINTS,
+    bareReturnAllow: [...AGENT_COMPOSER_HINTS, ...RUN_MODE_HINTS, ...SETTINGS_TERNARY_HINTS],
   },
   {
     rel: "out/vs/workbench/workbench.anysphere-ui-automations.js",

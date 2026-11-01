@@ -92,7 +92,7 @@ test("金标准（备份原始文件）：desktop.main.js 哈希可复现", (t) 
 
   assert.equal(
     base64Sha256(fs.readFileSync(main)),
-    "zLc/TLsiLn8TcTfsO//6/0tAr7IRtL6mCasxMAhNMOA"
+    "/ZrD7XDdz6l181cYcVJIirzIpNGD13ZEJZPVlnuYIbY"
   );
 });
 

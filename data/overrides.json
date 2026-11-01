@@ -1032,7 +1032,8 @@
  "vs/workbench/contrib/extensions/electron-sandbox/extensionMonitor.contribution": {
   "miOpenExtensionMonitorer": "打开 &&扩展监视器",
   "extensionMonitorEnabled": "启用扩展监视。需要重启才能生效。",
-  "openExtensionMonitor": "打开扩展监视器"
+  "openExtensionMonitor": "打开扩展监视器",
+  "extensionHostHeapSnapshotEnabled": "当本地扩展宿主的内存使用达到上限的四分之三时，为其写入一份堆快照。快照保存在调试数据文件夹中，并在你使用堆快照捕获调试数据时一并附加。写入快照会使扩展暂停数秒或更久。仅适用于更改后启动的扩展宿主。"
  },
  "vs/workbench/contrib/extensions/electron-sandbox/extensionProfileService": {
   "extensionHostProfileStatusTarget": "扩展主机",
@@ -1678,7 +1679,9 @@
   "forceOOMCancel": "取消",
   "captureAndSendDebuggingData": "捕获并发送调试数据",
   "toggleWatchForCrashes": "切换崩溃监视",
-  "forceRendererOOM": "强制渲染器 OOM 崩溃"
+  "forceRendererOOM": "强制渲染器 OOM 崩溃",
+  "captureDebuggingDataAgentHostHeapSnapshots": "智能体宿主堆快照",
+  "captureDebuggingDataAgentHostHeapSnapshotsDetail": "附加智能体宿主在接近内存上限时于过去一天内保存的堆快照。其中可能包含代码、提示词和附加文件。"
  },
  "vs/workbench/contrib/ui/browser/aiInput/plugins/mentions/MentionNode": {
   "mentionChip.removeMention": "移除提及"
@@ -1813,7 +1816,8 @@
   "devGetAutorunSettingForTesting": "开发: 获取自动运行设置 (用于测试)",
   "devGetLoadedPluginsSummaryForTesting": "开发: 获取已加载插件摘要 (用于测试)",
   "devGetModelConfigForSurfaceForTesting": "开发: 获取界面模型配置 (用于测试)",
-  "simulateNewUser": "模拟新用户"
+  "simulateNewUser": "模拟新用户",
+  "devWaitForSlashMenuSourcesForTesting": "开发：等待斜杠菜单数据源（仅供测试）"
  },
  "vs/workbench/electron-sandbox/actions/developerActions": {
   "toggleDevTools": "切换开发人员工具",
@@ -2017,7 +2021,28 @@
   "cursor.allowedTeamIds": "允许在此设备上登录的 Cursor 团队 ID 的逗号分隔列表（通过设备管理设置）。它将取代单数的 AllowedTeamId 策略；两者均会生效。",
   "cursor.allowedLoginEmails": "允许在此设备上登录的精确帐户电子邮件的逗号分隔列表（通过设备管理设置）。比较时不区分大小写。",
   "cursor.allowedLoginDomains": "允许其帐户在此设备上登录的电子邮件域（如 example.com）的逗号分隔列表（通过设备管理设置）。仅精确匹配域名；不隐式包含子域。",
-  "cursor.xaiIdentity.enabled": "当通过设备管理 (MDM) 启用时，Cursor 将通过 xAI (auth.x.ai) 而不是 Cursor 帐户登录，并在此设备上验证 xAI 令牌。"
+  "cursor.xaiIdentity.enabled": "当通过设备管理 (MDM) 启用时，Cursor 将通过 xAI (auth.x.ai) 而不是 Cursor 帐户登录，并在此设备上验证 xAI 令牌。",
+  "cursor.deploymentId": "通过设备管理（MDM）设为某个部署 ID 后，Cursor 只会连接到该部署，且无法切换。此版本不支持的 ID 会阻止登录。0 或未设置表示使用默认服务。",
+  "cursorAirlockConfigurationTitle": "SpaceX 气闸",
+  "cursor.airlock.containerName": "Cursor 在启用 SpaceX 模式时准备并打开的本地 Docker 或 Podman 容器名称（通过设备管理设置）。气闸需要此项。",
+  "cursor.airlock.defaultWorkspace": "Cursor 在气闸容器内打开的文件夹的绝对路径（通过设备管理设置）。气闸需要此项。",
+  "cursor.airlock.containerUser": "Cursor 在气闸容器内运行所使用的用户（通过设备管理设置）。留空时，Cursor 使用容器的默认用户。",
+  "cursor.airlock.engine": "气闸使用的容器引擎命令（通过设备管理设置）：docker、podman、二者的绝对路径，或一个包装脚本的绝对路径，该脚本将运行每条引擎命令。留空时，Cursor 使用 docker。",
+  "cursor.airlock.createContainerHook": "在气闸容器不存在时创建它的脚本绝对路径（通过设备管理设置）。",
+  "cursor.airlock.startContainerHook": "在气闸容器未运行时启动它的脚本绝对路径（通过设备管理设置）。留空时，Cursor 运行引擎自带的启动命令。",
+  "cursor.airlock.preAttachContainerHook": "Cursor 每次在打开气闸容器之前运行的脚本绝对路径（通过设备管理设置）。",
+  "cursor.airlock.restartContainerHook": "重启气闸容器的脚本绝对路径（通过设备管理设置）。留空时，Cursor 运行引擎自带的重启命令。",
+  "cursor.airlock.containerStatusHook": "以 JSON 形式报告气闸容器状态的脚本绝对路径（通过设备管理设置）。",
+  "cursor.airlock.hookTimeoutSeconds": "Cursor 允许每个气闸钩子脚本运行、以及等待容器启动的最长秒数，超时后即放弃（通过设备管理设置）。",
+  "cursorManagedDeploymentConfigurationTitle": "托管部署",
+  "cursor.deployment.backendUrl": "仅限 Cursor Orbit：DeploymentId 所指部署的 API 的 https 源（通过设备管理设置）。必填。",
+  "cursor.deployment.websiteUrl": "仅限 Cursor Orbit：该部署网站的 https 源（通过设备管理设置）。必填。",
+  "cursor.deployment.issuer": "仅限 Cursor Orbit：该部署登录令牌的签发者，必须是与其 iss 声明完全匹配的 https URL（通过设备管理设置）。必填。",
+  "cursor.deployment.authorizationEndpoint": "仅限 Cursor Orbit：该部署 OAuth 授权端点的 https URL（通过设备管理设置）。必填。",
+  "cursor.deployment.tokenEndpoint": "仅限 Cursor Orbit：该部署 OAuth 令牌端点的 https URL，须位于签发者的源上（通过设备管理设置）。必填。",
+  "cursor.deployment.revocationEndpoint": "仅限 Cursor Orbit：该部署 OAuth 撤销端点的 https URL，须位于签发者的源上（通过设备管理设置）。必填。",
+  "cursor.deployment.clientId": "仅限 Cursor Orbit：Cursor 在该部署身份提供方上的 OAuth 客户端 ID，其令牌会将其作为受众携带（通过设备管理设置）。必填。",
+  "cursor.deployment.emailDomains": "仅限 Cursor Orbit：允许登录该部署的账户邮箱域名，以逗号分隔，仅支持完全匹配（通过设备管理设置）。必填。"
  },
  "vs/workbench/services/customize/browser/projectPrimitiveCreation": {
   "newCommandName": "输入命令名称",
@@ -2379,7 +2404,9 @@
   "workspaceConnection.reconnectFailed": "重新连接失败。工作区仍处于断开状态。",
   "workspaceConnection.reconnectGaveUp": "无法重新连接到远程工作区。",
   "workspaceConnection.tryAgain": "重试",
-  "workspaceConnection.reconnectNow": "重新连接"
+  "workspaceConnection.reconnectNow": "重新连接",
+  "workspaceConnection.reconnectFailedNamed": "重新连接失败。“{0}”仍处于断开状态。",
+  "workspaceConnection.reconnectGaveUpNamed": "无法重新连接到“{0}”。"
  },
  "vs/workbench/services/workspaces/electron-sandbox/workspaceEditingService": {
   "saveWorkspaceMessage": "要将工作区配置保存为文件吗?",
@@ -2402,5 +2429,105 @@
  },
  "vs/workbench/contrib/composer/browser/transcript/transcriptLinkAddToChat": {
   "glass.addToChat.ignoredFile": "Cursor 会忽略 {0}，因此无法将其添加到聊天中。"
+ },
+ "vs/platform/airlock/common/airlock": {
+  "airlock.disabled": "气闸仅在 SpaceX 模式下可用。",
+  "airlock.unconfigured": "IT 尚未在这台计算机上配置气闸。",
+  "airlock.invalid": "IT 在这台计算机上的气闸设置无法使用：{0}",
+  "airlock.signedOut": "使用 SpaceX 账户登录后即可使用气闸。"
+ },
+ "vs/platform/airlock/common/airlockConfig": {
+  "airlock.policy.required": "未设置 {0}。",
+  "airlock.policy.containerName": "{0} 必须是容器名称：只能包含字母、数字、'_'、'.' 和 '-'，且以字母或数字开头。",
+  "airlock.policy.defaultWorkspace": "{0} 必须是容器内的绝对路径。",
+  "airlock.policy.containerUser": "{0} 必须是用户名或用户 ID，后面可选跟 ':' 和组名。",
+  "airlock.policy.engine": "{0} 必须是 docker、podman 或绝对路径。",
+  "airlock.policy.hookPath": "{0} 必须是绝对路径。",
+  "airlock.policy.string": "{0} 必须是字符串。",
+  "airlock.policy.timeout": "{0} 必须是正的秒数。"
+ },
+ "vs/platform/airlock/electron-main/airlockMainService": {
+  "airlock.wrapperNotExe": "开发容器无法运行 IT 的引擎包装器 {0}。在 Windows 上，气闸的引擎必须是 docker、podman 或 .exe 文件。",
+  "airlock.dockerPathConflict": "你在 {1} 中的 {0} 设置将开发容器指向了与气闸不同的容器引擎。请移除该设置，然后重新连接。",
+  "airlock.devContainersSetup": "Cursor 无法让开发容器准备好打开气闸：{0}"
+ },
+ "vs/platform/airlock/node/airlockDevContainers": {
+  "airlock.nameConfigInvalid": "Cursor 无法让开发容器准备好打开气闸，因为开发容器针对该容器的设置不是 JSON 对象。请修正或删除 {0}，然后重试。",
+  "airlock.nameConfigRemoteEnvInvalid": "Cursor 无法让开发容器准备好打开气闸，因为开发容器针对该容器的设置中的 remoteEnv 不是 JSON 对象。请修正或删除 {0}，然后重试。",
+  "airlock.settingsInvalid": "Cursor 无法让开发容器使用气闸的容器引擎，因为 {0} 不是有效的 JSON。请修正后重试。"
+ },
+ "vs/platform/airlock/node/airlockHooks": {
+  "airlock.hook.failedToStart": "Cursor 无法运行位于 {1} 的 {0} 钩子：{2}",
+  "airlock.hook.timedOut": "{0} 钩子未在 {1} 秒内完成。",
+  "airlock.hook.failed": "{0} 钩子失败：{1}",
+  "airlock.hook.signal": "{0} 钩子被 {1} 终止。",
+  "airlock.hook.exitCode": "{0} 钩子失败，退出码为 {1}。"
+ },
+ "vs/platform/airlock/node/airlockLifecycle": {
+  "airlock.progress.restart": "正在重启容器…",
+  "airlock.progress.inspect": "正在查找容器 {0}…",
+  "airlock.progress.waitForEngine": "正在等待 {0}…",
+  "airlock.containerMissing": "容器 {0} 不存在，且 IT 未设置用于创建它的钩子。",
+  "airlock.progress.create": "正在创建容器…",
+  "airlock.progress.resume": "正在恢复容器…",
+  "airlock.progress.preAttach": "正在准备容器…",
+  "airlock.progress.start": "正在启动容器…",
+  "airlock.progress.wait": "正在等待容器启动…",
+  "airlock.startTimeout": "容器 {0} 未在 {1} 秒内启动（{2}）。",
+  "airlock.containerGone": "容器 {0} 已不存在。",
+  "airlock.engineUnavailable": "{0} 不可用：{1}",
+  "airlock.engineFailed": "“{0} {1}”失败：{2}",
+  "airlock.progress.serverCheck": "正在检查 Cursor 服务器…",
+  "airlock.serverCheckFailed": "Cursor 无法检查容器 {0} 中的服务器：{1}",
+  "airlock.serverMissing": "容器 {0} 中没有此版本 Cursor 所需的 Cursor 服务器（commit {1}，{2}）。请联系 IT 将其放置到容器用户主目录的 ~/{3}/bin/{1}/ 下。",
+  "airlock.engineNotFound": "{0} 不在 PATH 中。",
+  "airlock.noAnswer": "{0} 秒内无响应",
+  "airlock.stoppedBySignal": "被 {0} 终止",
+  "airlock.exitCode": "退出码 {0}"
+ },
+ "vs/platform/spacexMode/electron-main/signInLogMainService": {
+  "signInLog": "登录"
+ },
+ "vs/platform/update/electron-main/updateService.darwin": {
+  "openLoginItemsSettings": "&&打开系统设置",
+  "cancel": "&&取消",
+  "backgroundActivityRequired": "允许 {0} 在后台运行",
+  "backgroundActivityRequiredDetail": "启用后台活动以在 {0} 上运行更新程序。当 {0} 退出时，macOS 会停止更新安装程序，因为不允许 {0} 在后台运行。"
+ },
+ "vs/workbench/contrib/airlock/electron-sandbox/airlockAttach": {
+  "airlockCanConnect": "此窗口是否可以打开 SpaceX 气闸",
+  "airlock.devContainersMissing": "Cursor 使用开发容器扩展打开气闸，但该扩展未安装或已停用。",
+  "airlock.connecting": "正在连接气闸",
+  "airlock.openLog": "打开日志",
+  "airlock.reloadWindow": "重新加载窗口"
+ },
+ "vs/workbench/contrib/airlock/electron-sandbox/airlockConnect.contribution": {
+  "airlock.connect": "连接到气闸"
+ },
+ "vs/workbench/contrib/composer/browser/promptInput/pathless-video-toast": {
+  "pathlessVideoRejected": "无法附加此视频。请将其保存为文件后重新附加。",
+  "pathlessDocumentRejected": "无法附加此文档。请将其保存为文件后重新附加。",
+  "cloudUnsupportedAttachmentRejected": "无法将此文件附加到云端智能体。"
+ },
+ "vs/workbench/contrib/composer/browser/transcript/composerAgentNavigation": {
+  "agentNavigation.subagentNotFound": "未找到子智能体"
+ },
+ "vs/workbench/contrib/composer/browser/transcript/composerReactPlaneHostRows": {
+  "composer.projectSetupLoading": "正在设置项目"
+ },
+ "vs/workbench/contrib/composer/browser/transcript/ComposerReactTranscriptRoot.react": {
+  "composer.transcript.regionLabel": "聊天记录"
+ },
+ "vs/workbench/contrib/remote/common/remote.contribution": {
+  "remote.autoForwardPorts.policyDescription": "自动转发远程窗口（包括开发容器）中新进程监听的端口。设为 false 时，新监听的端口不会自动转发，但扩展和已打开的 URL 仍可转发端口。"
+ },
+ "vs/workbench/contrib/remote/common/spaceXModeRemoteDefaults": {
+  "spaceXMode": "SpaceX 模式"
+ },
+ "vs/workbench/services/agentData/browser/queueItemEditSaves": {
+  "queuedMessageUpdateFailed": "更新排队消息失败。"
+ },
+ "vs/workbench/services/agentData/common/projectAgentHeader": {
+  "teammateProjectWorker.refused": "只有启动此智能体的队友才能打开它。"
  }
 }

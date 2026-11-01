@@ -188,6 +188,19 @@ test("scanBundle：驼峰键的映射表也整块收（独立 Agent 设置面板
   assert.deepEqual(scanBundle(slugMap).map((h) => h.raw), []);
 });
 
+test("scanBundle：语义色阶令牌表整块跳过（值会被拼进色阶键）", () => {
+  // 实测事故（Cursor 3.27.22）：这张表的值被 VG()/IH() 取去拼 `bg${tone}${variant}`，
+  // 翻掉后拼出 `bg危险主要`，色阶表查不到 → 抛 "Semantic ladder has no row for …"
+  // → 工作台初始化中断，整个窗口黑屏。标识值守卫挡不住：它们只参与字符串拼接，不参与等值比较。
+  const table = `Ewm={red:"Red",orange:"Orange",yellow:"Yellow",green:"Green",cyan:"Cyan",blue:"Blue",magenta:"Magenta",purple:"Purple",added:"Added",modified:"Modified",removed:"Removed",untracked:"Untracked",danger:"Danger",success:"Success",warning:"Warning",primary:"Primary",secondary:"Secondary",tertiary:"Tertiary",quaternary:"Quaternary",accent:"Accent",warn:"Warn"};`;
+  const use = `function fK0(){return m2i.flatMap(t=>{const e=VG(t);return[KU(\`bg\${e}Primary\`,t,"bg","primary")]})}`;
+  assert.deepEqual(scanBundle(table + use).map((h) => h.raw), []);
+
+  // 同一份 bundle 里的普通导航表不受影响，照常整块收
+  const nav = `T={general:"General",profile:"Profile",appearance:"Appearance",models:"Models",docs:"Docs"}`;
+  assert.equal(scanBundle(table + nav).length, 5);
+});
+
 test("scanBundle：映射表的值在别处参与过等值比较就不翻（比 ② 多一道按值的闸）", () => {
   // ② 只按表键查 byField，而 x==="Browser Automation" 这种裸比较记不到表键名下，
   // 于是表值翻了、判断侧没翻。④ 对每个值再查一次全局比较集。
@@ -196,6 +209,46 @@ test("scanBundle：映射表的值在别处参与过等值比较就不翻（比 
   const raws = scanBundle(src).map((h) => h.raw);
   assert.equal(raws.includes("Browser Automation"), false, "参与过等值比较的表值不得改写");
   assert.equal(raws.includes("Browser Protection"), true, "未参与比较的照常收");
+});
+
+test("scanBundle：语义令牌模块整块不翻，其余模块照常", () => {
+  // semantic-ladders.js 里的值会被拼成引用名（`red${kind}`），翻掉同样中断初始化。
+  // 两个 bundle 的模块加载器 minified 名不同（glass 是 L，内核是 W），两种都要认
+  const src =
+    `L({"semantic-ladders.js"(){"use strict"},xwm={text:"Foreground",icon:"ForegroundBright",border:"Fill"}});` +
+    `W({"semantic-ladders.js"(){"use strict"},RGu={text:"Foreground",icon:"ForegroundBright",border:"Fill"}});` +
+    `L({"settings-nav.js"(){"use strict"},T={general:"General",profile:"Profile",appearance:"Appearance",models:"Models",docs:"Docs"}});`;
+  assert.deepEqual(scanBundle(src).map((h) => h.raw), ["General", "Profile", "Appearance", "Models", "Docs"]);
+});
+
+test("scanBundle：设置模块里的模板正文整段收，工具说明模块一律不收", () => {
+  // 设置项说明普遍写成 description:`…${u}…`，前十条规则只认引号字面量，整批漏在英文。
+  const ui = 'L({"settingsCatalog.js"(){"use strict"},X={description:`Accept the next word via ${u}`}});';
+  assert.deepEqual(scanBundle(ui).map((h) => [h.quote, h.raw]), [
+    ["`", "Accept the next word via ${u}"],
+  ]);
+
+  // 同样的形状出现在非设置模块里是**喂给模型的工具说明**，翻掉会改模型行为 —— 必须不动。
+  const tool = 'L({"telemetry-log.ts"(){"use strict"},X={description:`Read the written chat via ${u}`}});';
+  assert.deepEqual(scanBundle(tool).map((h) => h.raw), []);
+});
+
+test("patchBundle：模板整段替换，内层字面量不重复替换；占位不一致的译文丢弃", () => {
+  const src = 'L({"settingsCatalog.js"(){"use strict"},a=`Use ${x?"Foo":"Bar"} now`});';
+  assert.ok(scanBundle(src).length >= 1);
+
+  // 模板整体替换后，落在其区间内的 "Foo"/"Bar" 不能再改一次 ——
+  // 测过的真实事故：两段替换重叠，bundle 语法直接崩（由 assertSyntax 拦下）。
+  const ok = patchBundle(src, {
+    'Use ${x?"Foo":"Bar"} now': '现在使用 ${x?"Foo":"Bar"}',
+    Foo: "甲",
+    Bar: "乙",
+  });
+  assert.equal(ok.source, 'L({"settingsCatalog.js"(){"use strict"},a=`现在使用 ${x?"Foo":"Bar"}`});');
+
+  // 译文丢了 ${…} 占位就整条丢弃，绝不生成坏模板。
+  const bad = patchBundle(src, { 'Use ${x?"Foo":"Bar"} now': "现在使用" });
+  assert.equal(bad.source.includes("现在使用"), false);
 });
 
 test("scanBundle：命中的区间必须精确套住那个字面量", () => {

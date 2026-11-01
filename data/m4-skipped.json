@@ -726,5 +726,8 @@
 	"The user approved the requested network access.": "喂给模型的环境搭建状态块（Bek 被 Uek 消费后拼进 prompt），不是界面文案",
 	"The user completed the requested external action.": "喂给模型的环境搭建状态块（Bek 被 Uek 消费后拼进 prompt），不是界面文案",
 	"Merge Request": "与已登记的 Pull Request 同处一个 requestLabel 三元式，而 Pull Request 按术语表 keepAsIs 保留原文；只翻一半会让同一位置中英混排。要统一须先改 data/terms.json",
-	"Sky Map": "示例应用名（横幅标题），属于演示数据而非界面文案"
+	"Sky Map": "示例应用名（横幅标题），属于演示数据而非界面文案",
+	"Quaternary": "颜色层级/令牌标识（case \"quaternary\" 分支的比较操作数），不是界面文案",
+	"Bay Canopy Birds": "示例应用名（演示数据），不是界面文案",
+	"Field notes on the birds of the bay's tree canopy.": "示例应用描述（演示数据），不是界面文案"
 }
